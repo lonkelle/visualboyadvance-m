@@ -58,7 +58,7 @@ protected:
 // on errors, abort program
 #define baddialog()                                                      \
     do {                                                                 \
-        wxLogError(_("Unable to load dialog %s from resources"), dname.c_str()); \
+        wxLogError(_("Unable to load dialog %s from resources"), dname); \
         wxGetApp().frame->Close(true);                                   \
         return;                                                          \
     } while (0)
@@ -141,7 +141,6 @@ protected:
     // assigned to textctrl to avoid mouse input
     void MouseEvent(wxMouseEvent& ev)
     {
-	(void)ev; // unused param
     }
     // the subwidgets
     wxTextCtrl tc;
@@ -194,7 +193,7 @@ private:
 
 public:
     // make addr visible
-    void ShowAddr(uint32_t addr, bool force_update = false);
+    void Show(uint32_t addr, bool force_update = false);
 
     // current selection, or topaddr if none
     uint32_t GetAddr();
@@ -407,13 +406,12 @@ protected:
 // a display-only checkbox which does not look like it's disabled
 class DispCheckBox : public wxCheckBox {
 public:
-    bool AcceptsFocus() const
+    bool AcceptsFocus()
     {
         return false;
     }
     void MouseEvent(wxMouseEvent& ev)
     {
-	(void)ev; // unused param
     }
     DECLARE_EVENT_TABLE()
     DECLARE_DYNAMIC_CLASS(DispCheckBox)

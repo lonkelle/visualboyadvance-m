@@ -13,17 +13,11 @@
 
 #include <zlib.h>
 
-
-#define STB_IMAGE_IMPLEMENTATION
+#ifndef NO_PNG
 extern "C" {
-#include "stb_image.h"
+#include <png.h>
 }
-
-#define STBI_MSC_SECURE_CRT
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-extern "C" {
-#include "stb_image_write.h"
-}
+#endif
 
 #include "NLS.h"
 #include "System.h"
@@ -60,8 +54,6 @@ static int(ZEXPORT *utilGzReadFunc)(gzFile, voidp, unsigned int) = NULL;
 static int(ZEXPORT *utilGzCloseFunc)(gzFile) = NULL;
 static z_off_t(ZEXPORT *utilGzSeekFunc)(gzFile, z_off_t, int) = NULL;
 
-#define MAX_CART_SIZE 0x8000000 // 128MB
-
 bool FileExists(const char *filename)
 {
 #ifdef _WIN32
@@ -70,105 +62,6 @@ bool FileExists(const char *filename)
         struct stat buffer;
         return (stat(filename, &buffer) == 0);
 #endif
-}
-
-#ifdef _WIN32
-#include <windows.h>
-
-wchar_t* utf8ToUtf16(const char *utf8)
-{
-    wchar_t *utf16 = nullptr;
-    size_t size = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL , 0);
-    if (size == 0) return nullptr; // error
-    utf16 = new wchar_t[size];
-    size = MultiByteToWideChar(CP_UTF8, 0, utf8 , -1, utf16, size);
-    if (size == 0) {
-        delete[] utf16;
-        return nullptr; // error
-    }
-    return utf16;
-}
-#endif // _WIN32
-
-FILE* utilOpenFile(const char *filename, const char *mode)
-{
-    FILE *f = NULL;
-#ifdef _WIN32
-    wchar_t *wfilename = utf8ToUtf16(filename);
-    if (!wfilename) return nullptr;
-    wchar_t *wmode = utf8ToUtf16(mode);
-    if (!wmode) {
-        delete[] wfilename;
-        return nullptr;
-    }
-
-    f = _wfopen(wfilename, wmode);
-    delete[] wfilename;
-    delete[] wmode;
-#else
-    f = fopen(filename, mode);
-#endif // _WIN32
-    return f;
-}
-
-// Get user-specific config dir manually.
-// apple:   ~/Library/Application Support/
-// windows: %APPDATA%/
-// unix:    ${XDG_CONFIG_HOME:-~/.config}/
-std::string get_xdg_user_config_home()
-{
-    std::string path;
-#ifdef __APPLE__
-    std::string home(getenv("HOME"));
-    path = home + "/Library/Application Support";
-#elif _WIN32
-    char *app_data_env = getenv("LOCALAPPDATA");
-    if (!app_data_env) app_data_env = getenv("APPDATA");
-    std::string app_data(app_data_env);
-    path = app_data;
-#else // Unix
-    char *xdg_var = getenv("XDG_CONFIG_HOME");
-    if (!xdg_var || !*xdg_var)
-    {
-	std::string xdg_default(getenv("HOME"));
-	path = xdg_default + "/.config";
-    }
-    else
-    {
-	path = xdg_var;
-    }
-#endif
-    return path + FILE_SEP;
-}
-
-// Get user-specific data dir manually.
-// apple:   ~/Library/Application Support/
-// windows: %APPDATA%/
-// unix:    ${XDG_DATA_HOME:-~/.local/share}/
-std::string get_xdg_user_data_home()
-{
-    std::string path;
-#ifdef __APPLE__
-    std::string home(getenv("HOME"));
-    path = home + "/Library/Application Support";
-#elif _WIN32
-    char *app_data_env = getenv("LOCALAPPDATA");
-    if (!app_data_env) app_data_env = getenv("APPDATA");
-    std::string app_data(app_data_env);
-    path = app_data;
-#else // Unix
-    char *xdg_var = getenv("XDG_DATA_HOME");
-    if (!xdg_var || !*xdg_var)
-    {
-	std::string xdg_default(getenv("HOME"));
-	path = xdg_default + "/.local/share";
-    }
-    else
-    {
-	path = xdg_var;
-    }
-#endif
-    return path + FILE_SEP;
 }
 
 void utilReadScreenPixels(uint8_t *dest, int w, int h)
@@ -226,71 +119,127 @@ void utilReadScreenPixels(uint8_t *dest, int w, int h)
         }
 }
 
-#define CHANNEL_NUM 3 // RGB
-
 bool utilWritePNGFile(const char *fileName, int w, int h, uint8_t *pix)
 {
-        uint8_t *writeBuffer = new uint8_t[w * h * CHANNEL_NUM];
+#ifndef NO_PNG
+        uint8_t writeBuffer[512 * 3];
+
+        FILE *fp = fopen(fileName, "wb");
+
+        if (!fp) {
+                systemMessage(MSG_ERROR_CREATING_FILE, N_("Error creating file %s"), fileName);
+                return false;
+        }
+
+        png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+        if (!png_ptr) {
+                fclose(fp);
+                return false;
+        }
+
+        png_infop info_ptr = png_create_info_struct(png_ptr);
+
+        if (!info_ptr) {
+                png_destroy_write_struct(&png_ptr, NULL);
+                fclose(fp);
+                return false;
+        }
+
+        if (setjmp(png_jmpbuf(png_ptr))) {
+                png_destroy_write_struct(&png_ptr, NULL);
+                fclose(fp);
+                return false;
+        }
+
+        png_init_io(png_ptr, fp);
+
+        png_set_IHDR(png_ptr,
+                     info_ptr,
+                     w,
+                     h,
+                     8,
+                     PNG_COLOR_TYPE_RGB,
+                     PNG_INTERLACE_NONE,
+                     PNG_COMPRESSION_TYPE_DEFAULT,
+                     PNG_FILTER_TYPE_DEFAULT);
+
+        png_write_info(png_ptr, info_ptr);
 
         uint8_t *b = writeBuffer;
 
         int sizeX = w;
         int sizeY = h;
 
-        switch (systemColorDepth)
-        {
-            case 16: {
-                    uint16_t *p = (uint16_t *)(pix + (w + 2) * 2); // skip first black line
-                    for (int y = 0; y < sizeY; y++) {
-                            for (int x = 0; x < sizeX; x++) {
-                                    uint16_t v = *p++;
+        switch (systemColorDepth) {
+        case 16: {
+                uint16_t *p = (uint16_t *)(pix + (w + 2) * 2); // skip first black line
+                for (int y = 0; y < sizeY; y++) {
+                        for (int x = 0; x < sizeX; x++) {
+                                uint16_t v = *p++;
 
-                                    *b++ = ((v >> systemRedShift) & 0x001f) << 3;   // R
-                                    *b++ = ((v >> systemGreenShift) & 0x001f) << 3; // G
-                                    *b++ = ((v >> systemBlueShift) & 0x01f) << 3;   // B
-                            }
-                            p++; // skip black pixel for filters
-                            p++; // skip black pixel for filters
-                    }
-            } break;
-            case 24: {
-                    uint8_t *pixU8 = (uint8_t *)pix;
-                    for (int y = 0; y < sizeY; y++) {
-                            for (int x = 0; x < sizeX; x++) {
-                                    if (systemRedShift < systemBlueShift) {
-                                            *b++ = *pixU8++; // R
-                                            *b++ = *pixU8++; // G
-                                            *b++ = *pixU8++; // B
-                                    } else {
-                                            int blue = *pixU8++;
-                                            int green = *pixU8++;
-                                            int red = *pixU8++;
+                                *b++ = ((v >> systemRedShift) & 0x001f) << 3;   // R
+                                *b++ = ((v >> systemGreenShift) & 0x001f) << 3; // G
+                                *b++ = ((v >> systemBlueShift) & 0x01f) << 3;   // B
+                        }
+                        p++; // skip black pixel for filters
+                        p++; // skip black pixel for filters
+                        png_write_row(png_ptr, writeBuffer);
 
-                                            *b++ = red;
-                                            *b++ = green;
-                                            *b++ = blue;
-                                    }
-                            }
-                    }
-            } break;
-            case 32: {
-                    uint32_t *pixU32 = (uint32_t *)(pix + 4 * (w + 1));
-                    for (int y = 0; y < sizeY; y++) {
-                            for (int x = 0; x < sizeX; x++) {
-                                    uint32_t v = *pixU32++;
+                        b = writeBuffer;
+                }
+        } break;
+        case 24: {
+                uint8_t *pixU8 = (uint8_t *)pix;
+                for (int y = 0; y < sizeY; y++) {
+                        for (int x = 0; x < sizeX; x++) {
+                                if (systemRedShift < systemBlueShift) {
+                                        *b++ = *pixU8++; // R
+                                        *b++ = *pixU8++; // G
+                                        *b++ = *pixU8++; // B
+                                } else {
+                                        int blue = *pixU8++;
+                                        int green = *pixU8++;
+                                        int red = *pixU8++;
 
-                                    *b++ = ((v >> systemRedShift) & 0x001f) << 3;   // R
-                                    *b++ = ((v >> systemGreenShift) & 0x001f) << 3; // G
-                                    *b++ = ((v >> systemBlueShift) & 0x001f) << 3;  // B
-                            }
-                            pixU32++;
-                    }
-            } break;
+                                        *b++ = red;
+                                        *b++ = green;
+                                        *b++ = blue;
+                                }
+                        }
+                        png_write_row(png_ptr, writeBuffer);
+
+                        b = writeBuffer;
+                }
+        } break;
+        case 32: {
+                uint32_t *pixU32 = (uint32_t *)(pix + 4 * (w + 1));
+                for (int y = 0; y < sizeY; y++) {
+                        for (int x = 0; x < sizeX; x++) {
+                                uint32_t v = *pixU32++;
+
+                                *b++ = ((v >> systemRedShift) & 0x001f) << 3;   // R
+                                *b++ = ((v >> systemGreenShift) & 0x001f) << 3; // G
+                                *b++ = ((v >> systemBlueShift) & 0x001f) << 3;  // B
+                        }
+                        pixU32++;
+
+                        png_write_row(png_ptr, writeBuffer);
+
+                        b = writeBuffer;
+                }
+        } break;
         }
 
-        bool ret = (0 != stbi_write_png(fileName, w, h, CHANNEL_NUM, writeBuffer, w * CHANNEL_NUM));
-        delete[] writeBuffer;
-        return ret;
+        png_write_end(png_ptr, info_ptr);
+
+        png_destroy_write_struct(&png_ptr, &info_ptr);
+
+        fclose(fp);
+
+        return true;
+#else
+        return false;
+#endif
 }
 
 void utilPutDword(uint8_t *p, uint32_t value)
@@ -307,7 +256,6 @@ void utilPutWord(uint8_t *p, uint16_t value)
         *p = (value >> 8) & 255;
 }
 
-#ifndef __LIBRETRO__
 bool utilWriteBMPFile(const char *fileName, int w, int h, uint8_t *pix)
 {
         uint8_t writeBuffer[512 * 3];
@@ -426,7 +374,6 @@ bool utilWriteBMPFile(const char *fileName, int w, int h, uint8_t *pix)
 
         return true;
 }
-#endif /* !__LIBRETRO__ */
 
 extern bool cpuIsMultiBoot;
 
@@ -544,6 +491,10 @@ static bool utilIsImage(const char *file)
         return utilIsGBAImage(file) || utilIsGBImage(file);
 }
 
+#ifdef WIN32
+#include <windows.h>
+#endif
+
 IMAGE_TYPE utilFindType(const char *file, char (&buffer)[2048]);
 
 IMAGE_TYPE utilFindType(const char *file)
@@ -562,8 +513,7 @@ IMAGE_TYPE utilFindType(const char *file, char (&buffer)[2048])
                 return IMAGE_UNKNOWN;
         }
         MultiByteToWideChar(CP_ACP, 0, file, -1, pwText, dwNum);
-        //char *file_conv = fex_wide_to_path(file);
-        char *file_conv = (char *)file;
+        char *file_conv = fex_wide_to_path(pwText);
         //	if ( !utilIsImage( file_conv ) ) // TODO: utilIsArchive() instead?
         //	{
         fex_t *fe = scan_arc(file_conv, utilIsImage, buffer);
@@ -572,7 +522,7 @@ IMAGE_TYPE utilFindType(const char *file, char (&buffer)[2048])
         fex_close(fe);
         file = buffer;
         //	}
-        //free(file_conv);
+        free(file_conv);
 #else
         //	if ( !utilIsImage( file ) ) // TODO: utilIsArchive() instead?
         //	{
@@ -606,13 +556,12 @@ uint8_t *utilLoad(const char *file, bool (*accept)(const char *), uint8_t *data,
                 return NULL;
         }
         MultiByteToWideChar(CP_ACP, 0, file, -1, pwText, dwNum);
-        //char *file_conv = fex_wide_to_path(file);
-        char *file_conv = (char *)file;
+        char *file_conv = fex_wide_to_path(pwText);
         delete[] pwText;
         fex_t *fe = scan_arc(file_conv, accept, buffer);
         if (!fe)
                 return NULL;
-        //free(file_conv);
+        free(file_conv);
 #else
         fex_t *fe = scan_arc(file, accept, buffer);
         if (!fe)
@@ -623,9 +572,6 @@ uint8_t *utilLoad(const char *file, bool (*accept)(const char *), uint8_t *data,
         int fileSize = fex_size(fe);
         if (size == 0)
                 size = fileSize;
-
-        if (size > MAX_CART_SIZE)
-                return NULL;
 
         uint8_t *image = data;
 
@@ -758,19 +704,6 @@ void utilWriteData(gzFile gzFile, variable_desc *data)
         }
 }
 
-gzFile utilAutoGzOpen(const char *file, const char *mode)
-{
-#ifdef _WIN32
-        wchar_t *wfile = utf8ToUtf16(file);
-        if (!wfile) return nullptr;
-        gzFile handler = gzopen_w(wfile, mode);
-        delete[] wfile;
-        return handler;
-#else
-        return gzopen(file, mode);
-#endif
-}
-
 gzFile utilGzOpen(const char *file, const char *mode)
 {
         utilGzWriteFunc = (int(ZEXPORT *)(gzFile, void *const, unsigned int))gzwrite;
@@ -778,7 +711,7 @@ gzFile utilGzOpen(const char *file, const char *mode)
         utilGzCloseFunc = gzclose;
         utilGzSeekFunc = gzseek;
 
-        return utilAutoGzOpen(file, mode);
+        return gzopen(file, mode);
 }
 
 gzFile utilMemGzOpen(char *memory, int available, const char *mode)

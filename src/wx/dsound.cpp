@@ -10,6 +10,7 @@
 
 // DirectSound8
 #define DIRECTSOUND_VERSION 0x0800
+#include "../common/ConfigManager.h"
 #include <dsound.h>
 
 extern bool soundBufferLow;
@@ -193,8 +194,8 @@ bool DirectSound::init(long sampleRate)
 void DirectSound::setThrottle(unsigned short throttle_) {
     HRESULT hr;
 
-    if (throttle_ == 0)
-        throttle_ = 450; // Close to upper bound on frequency.
+    if (!throttle_)
+        throttle_ = 100;
 
     long freq = soundGetSampleRate();
 

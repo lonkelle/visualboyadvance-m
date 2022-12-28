@@ -5,10 +5,6 @@
 
 #define winlog log
 
-#ifdef __LIBRETRO__
-#define utilOpenFile fopen
-#endif
-
 class SoundDriver;
 
 struct EmulatedSystem {
@@ -24,9 +20,9 @@ struct EmulatedSystem {
         bool (*emuWriteBattery)(const char *);
 #ifdef __LIBRETRO__
         // load state
-        bool (*emuReadState)(const uint8_t *);
+        bool (*emuReadState)(const uint8_t *, unsigned);
         // load state
-        unsigned (*emuWriteState)(uint8_t *);
+        unsigned (*emuWriteState)(uint8_t *, unsigned);
 #else
         // load state
         bool (*emuReadState)(const char *);
@@ -54,7 +50,6 @@ extern bool systemPauseOnFrame();
 extern void systemGbPrint(uint8_t *, int, int, int, int, int);
 extern void systemScreenCapture(int);
 extern void systemDrawScreen();
-extern void systemSendScreen();
 // updates the joystick data
 extern bool systemReadJoypads();
 // return information about the given joystick, -1 for default joystick

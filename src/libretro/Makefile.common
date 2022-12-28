@@ -1,25 +1,11 @@
-LIBRETRO_COMMON := $(CORE_DIR)/libretro/libretro-common
-INCFLAGS        := -I$(CORE_DIR) -I$(LIBRETRO_COMMON)/include
-VBA_DEFINES     := -D__LIBRETRO__ -DFINAL_VERSION -DC_CORE -DNO_DEBUGGER
-VBA_DEFINES		+= -DNO_PNG
-
-ifeq ($(TILED_RENDERING), 1)
-VBA_DEFINES += -DTILED_RENDERING
-endif
-
-ifeq ($(FRONTEND_SUPPORTS_RGB565),1)
-VBA_DEFINES += -DFRONTEND_SUPPORTS_RGB565
-endif
-
-ifeq ($(NO_LINK),1)
-VBA_DEFINES += -DNO_LINK
-endif
-
+INCFLAGS := -I$(CORE_DIR)
 SOURCES_CXX :=
+
 SOURCES_CXX += \
 	$(CORE_DIR)/libretro/libretro.cpp \
 	$(CORE_DIR)/libretro/UtilRetro.cpp \
-	$(CORE_DIR)/libretro/SoundRetro.cpp
+	$(CORE_DIR)/libretro/SoundRetro.cpp \
+	$(CORE_DIR)/libretro/scrc32.cpp
 
 SOURCES_CXX += \
 	$(CORE_DIR)/apu/Gb_Oscs.cpp \
@@ -60,8 +46,3 @@ SOURCES_CXX += \
 	$(CORE_DIR)/gb/gbMemory.cpp \
 	$(CORE_DIR)/gb/gbSGB.cpp \
 	$(CORE_DIR)/gb/gbSound.cpp
-
-# Filters
-SOURCES_CXX += \
-	$(CORE_DIR)/filters/interframe.cpp \
-	$(CORE_DIR)/gba/gbafilter.cpp

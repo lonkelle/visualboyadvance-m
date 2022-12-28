@@ -1,5 +1,9 @@
-#include "wxvbam.h"
+#ifndef NO_FFMPEG
+#define __STDC_LIMIT_MACROS // required for ffmpeg
+#define __STDC_CONSTANT_MACROS // required for ffmpeg
+#endif
 
+#include "wxvbam.h"
 #include <algorithm>
 #include <wx/aboutdlg.h>
 #include <wx/ffile.h>
@@ -9,12 +13,21 @@
 #include <wx/sstream.h>
 #include <wx/url.h>
 #include <wx/wfstream.h>
-#include <wx/msgdlg.h>
 
-#include "../common/version_cpp.h"
+#ifndef NO_FFMPEG
+extern "C" {
+#include <libavformat/avformat.h>
+}
+// For compatibility with 3.0+ ffmpeg
+#include <libavcodec/version.h>
+#if LIBAVCODEC_VERSION_MAJOR >= 56
+#define CODEC_ID_NONE AV_CODEC_ID_NONE
+#endif
+#endif
+#include "version.h"
+#include "../common/ConfigManager.h"
 #include "../gb/gbPrinter.h"
 #include "../gba/agbprint.h"
-#include "config/option.h"
 
 #if (wxMAJOR_VERSION < 3)
 #define GetXRCDialog(n) \
@@ -31,55 +44,27 @@ bool cmditem_lt(const struct cmditem& cmd1, const struct cmditem& cmd2)
     return wxStrcmp(cmd1.cmd, cmd2.cmd) < 0;
 }
 
-void MainFrame::GetMenuOptionBool(const wxString& menuName, bool* field)
+void MainFrame::GetMenuOptionBool(const char* menuName, bool& field)
 {
-    assert(field);
-    *field = !*field;
-    int id = wxXmlResource::GetXRCID(menuName);
+    field = !field;
+    int id = wxXmlResource::GetXRCID(wxString(menuName, wxConvUTF8));
 
-    for (size_t i = 0; i < checkable_mi.size(); i++) {
+    for (int i = 0; i < checkable_mi.size(); i++) {
         if (checkable_mi[i].cmd != id)
             continue;
 
-        *field = checkable_mi[i].mi->IsChecked();
+        field = checkable_mi[i].mi->IsChecked();
         break;
     }
 }
 
-void MainFrame::GetMenuOptionConfig(const wxString& menu_name,
-                                    const config::OptionID& option_id) {
-    config::Option* option = config::Option::ByID(option_id);
-    assert(option);
-
-    int id = wxXmlResource::GetXRCID(menu_name);
-    for (size_t i = 0; i < checkable_mi.size(); i++) {
-        if (checkable_mi[i].cmd != id)
-            continue;
-
-        const bool is_checked = checkable_mi[i].mi->IsChecked();
-        switch (option->type()) {
-            case config::Option::Type::kBool:
-                option->SetBool(is_checked);
-                break;
-            case config::Option::Type::kInt:
-                option->SetInt(is_checked);
-                break;
-            default:
-                assert(false);
-                return;
-        }
-        break;
-    }
-}
-
-void MainFrame::GetMenuOptionInt(const wxString& menuName, int* field, int mask)
+void MainFrame::GetMenuOptionInt(const char* menuName, int& field, int mask)
 {
-    assert(field);
     int value = mask;
-    bool is_checked = ((*field) & (mask)) != (value);
-    int id = wxXmlResource::GetXRCID(menuName);
+    bool is_checked = ((field) & (mask)) != (value);
+    int id = wxXmlResource::GetXRCID(wxString(menuName, wxConvUTF8));
 
-    for (size_t i = 0; i < checkable_mi.size(); i++) {
+    for (int i = 0; i < checkable_mi.size(); i++) {
         if (checkable_mi[i].cmd != id)
             continue;
 
@@ -87,38 +72,20 @@ void MainFrame::GetMenuOptionInt(const wxString& menuName, int* field, int mask)
         break;
     }
 
-    *field = ((*field) & ~(mask)) | (is_checked ? (value) : 0);
+    field = ((field) & ~(mask)) | (is_checked ? (value) : 0);
 }
 
-void MainFrame::SetMenuOption(const wxString& menuName, int value)
+void MainFrame::SetMenuOption(const char* menuName, int value)
 {
-    int id = wxXmlResource::GetXRCID(menuName);
+    int id = wxXmlResource::GetXRCID(wxString(menuName, wxConvUTF8));
 
-    for (size_t i = 0; i < checkable_mi.size(); i++) {
+    for (int i = 0; i < checkable_mi.size(); i++) {
         if (checkable_mi[i].cmd != id)
             continue;
 
         checkable_mi[i].mi->Check(value);
         break;
     }
-}
-
-static void toggleBooleanVar(bool *menuValue, bool *globalVar)
-{
-    if (*menuValue == *globalVar) // used accelerator
-        *globalVar = !(*globalVar);
-    else // used menu item
-        *globalVar = *menuValue;
-}
-
-static void toggleBitVar(bool *menuValue, int *globalVar, int mask)
-{
-    bool isEnabled = ((*globalVar) & (mask)) != (mask);
-    if (*menuValue == isEnabled)
-        *globalVar = ((*globalVar) & ~(mask)) | (!isEnabled ? (mask) : 0);
-    else
-        *globalVar = ((*globalVar) & ~(mask)) | (*menuValue ? (mask) : 0);
-    *menuValue = ((*globalVar) & (mask)) != (mask);
 }
 
 //// File menu
@@ -220,10 +187,7 @@ EVT_HANDLER(RecentReset, "Reset recent ROM list")
 
 EVT_HANDLER(RecentFreeze, "Freeze recent ROM list (toggle)")
 {
-    bool menuPress = false;
-    GetMenuOptionBool("RecentFreeze", &menuPress);
-    toggleBooleanVar(&menuPress, &gopts.recent_freeze);
-    SetMenuOption("RecentFreeze", gopts.recent_freeze ? 1 : 0);
+    GetMenuOptionBool("RecentFreeze", gopts.recent_freeze);
     update_opts();
 }
 
@@ -233,100 +197,80 @@ EVT_HANDLER(wxID_FILE1, "Load recent ROM 1")
 {
     panel->LoadGame(gopts.recent->GetHistoryFile(0));
 
-#ifndef NO_DEBUGGER
     if (gdbBreakOnLoad)
         GDBBreak();
-#endif
 }
 
 EVT_HANDLER(wxID_FILE2, "Load recent ROM 2")
 {
     panel->LoadGame(gopts.recent->GetHistoryFile(1));
 
-#ifndef NO_DEBUGGER
     if (gdbBreakOnLoad)
         GDBBreak();
-#endif
 }
 
 EVT_HANDLER(wxID_FILE3, "Load recent ROM 3")
 {
     panel->LoadGame(gopts.recent->GetHistoryFile(2));
 
-#ifndef NO_DEBUGGER
     if (gdbBreakOnLoad)
         GDBBreak();
-#endif
 }
 
 EVT_HANDLER(wxID_FILE4, "Load recent ROM 4")
 {
     panel->LoadGame(gopts.recent->GetHistoryFile(3));
 
-#ifndef NO_DEBUGGER
     if (gdbBreakOnLoad)
         GDBBreak();
-#endif
 }
 
 EVT_HANDLER(wxID_FILE5, "Load recent ROM 5")
 {
     panel->LoadGame(gopts.recent->GetHistoryFile(4));
 
-#ifndef NO_DEBUGGER
     if (gdbBreakOnLoad)
         GDBBreak();
-#endif
 }
 
 EVT_HANDLER(wxID_FILE6, "Load recent ROM 6")
 {
     panel->LoadGame(gopts.recent->GetHistoryFile(5));
 
-#ifndef NO_DEBUGGER
     if (gdbBreakOnLoad)
         GDBBreak();
-#endif
 }
 
 EVT_HANDLER(wxID_FILE7, "Load recent ROM 7")
 {
     panel->LoadGame(gopts.recent->GetHistoryFile(6));
 
-#ifndef NO_DEBUGGER
     if (gdbBreakOnLoad)
         GDBBreak();
-#endif
 }
 
 EVT_HANDLER(wxID_FILE8, "Load recent ROM 8")
 {
     panel->LoadGame(gopts.recent->GetHistoryFile(7));
 
-#ifndef NO_DEBUGGER
     if (gdbBreakOnLoad)
         GDBBreak();
-#endif
 }
 
 EVT_HANDLER(wxID_FILE9, "Load recent ROM 9")
 {
     panel->LoadGame(gopts.recent->GetHistoryFile(8));
 
-#ifndef NO_DEBUGGER
     if (gdbBreakOnLoad)
         GDBBreak();
-#endif
 }
 
 EVT_HANDLER(wxID_FILE10, "Load recent ROM 10")
 {
     panel->LoadGame(gopts.recent->GetHistoryFile(9));
 
-#ifndef NO_DEBUGGER
     if (gdbBreakOnLoad)
         GDBBreak();
-#endif
 }
 
 static const struct rom_maker {
@@ -561,7 +505,6 @@ static bool maker_lt(const rom_maker& r1, const rom_maker& r2)
 
 void SetDialogLabel(wxDialog* dlg, const wxString& id, wxString ts, size_t l)
 {
-    (void)l; // unused params
     ts.Replace(wxT("&"), wxT("&&"), true);
     (dynamic_cast<wxControl*>((*dlg).FindWindow(wxXmlResource::GetXRCID(id))))->SetLabel(ts);
 }
@@ -583,7 +526,7 @@ EVT_HANDLER_MASK(RomInformation, "ROM information...", CMDEN_GB | CMDEN_GBA)
     } while (0)
 #define setblabs(id, b, ts)                              \
     do {                                                 \
-        s.Printf(wxT("%02x (%s)"), (unsigned int)b, ts.c_str()); \
+        s.Printf(wxT("%02x (%s)"), (unsigned int)b, ts); \
         setlab(id);                                      \
     } while (0)
 #define setlabs(id, ts, l)                               \
@@ -604,7 +547,7 @@ EVT_HANDLER_MASK(RomInformation, "ROM information...", CMDEN_GB | CMDEN_GBA)
             s.Printf(wxT("%02x"), gbRom[0x14b]);
 
         setlab("MakerCode");
-        const rom_maker m = { s, wxString() }, *rm;
+        const rom_maker m = { s }, *rm;
         rm = std::lower_bound(&makers[0], &makers[num_makers], m, maker_lt);
 
         if (rm < &makers[num_makers] && !wxStrcmp(m.code, rm->code))
@@ -832,7 +775,7 @@ EVT_HANDLER_MASK(RomInformation, "ROM information...", CMDEN_GB | CMDEN_GBA)
         SetDialogLabel(dlg, wxT("CRC32"), rom_crc32, 8);
         setlabs("GameCode", rom[0xac], 4);
         setlabs("MakerCode", rom[0xb0], 2);
-        const rom_maker m = { s, wxString() }, *rm;
+        const rom_maker m = { s }, *rm;
         rm = std::lower_bound(&makers[0], &makers[num_makers], m, maker_lt);
 
         if (rm < &makers[num_makers] && !wxStrcmp(m.code, rm->code))
@@ -860,20 +803,14 @@ EVT_HANDLER_MASK(RomInformation, "ROM information...", CMDEN_GB | CMDEN_GBA)
         dlg->Fit();
         ShowModal(dlg);
     } break;
-
-    default:
-        break;
     }
 }
 
-EVT_HANDLER_MASK(ResetLoadingDotCodeFile, "Reset Loading e-Reader Dot Code", CMDEN_GBA)
-{
-    ResetLoadDotCodeFile();
-}
+static wxString loaddotcodefile_path;
+static wxString savedotcodefile_path;
 
-EVT_HANDLER_MASK(SetLoadingDotCodeFile, "Load e-Reader Dot Code...", CMDEN_GBA)
+EVT_HANDLER_MASK(LoadDotCodeFile, "Load e-Reader Dot Code...", CMDEN_GBA)
 {
-    static wxString loaddotcodefile_path;
     wxFileDialog dlg(this, _("Select Dot Code file"), loaddotcodefile_path, wxEmptyString,
         _(
                          "e-Reader Dot Code (*.bin;*.raw)|"
@@ -885,17 +822,11 @@ EVT_HANDLER_MASK(SetLoadingDotCodeFile, "Load e-Reader Dot Code...", CMDEN_GBA)
         return;
 
     loaddotcodefile_path = dlg.GetPath();
-    SetLoadDotCodeFile(UTF8(loaddotcodefile_path));
+    SetLoadDotCodeFile(loaddotcodefile_path.mb_str(wxConvUTF8));
 }
 
-EVT_HANDLER_MASK(ResetSavingDotCodeFile, "Reset Saving e-Reader Dot Code", CMDEN_GBA)
+EVT_HANDLER_MASK(SaveDotCodeFile, "Save e-Reader Dot Code...", CMDEN_GBA)
 {
-    ResetLoadDotCodeFile();
-}
-
-EVT_HANDLER_MASK(SetSavingDotCodeFile, "Save e-Reader Dot Code...", CMDEN_GBA)
-{
-    static wxString savedotcodefile_path;
     wxFileDialog dlg(this, _("Select Dot Code file"), savedotcodefile_path, wxEmptyString,
         _(
                          "e-Reader Dot Code (*.bin;*.raw)|"
@@ -907,7 +838,7 @@ EVT_HANDLER_MASK(SetSavingDotCodeFile, "Save e-Reader Dot Code...", CMDEN_GBA)
         return;
 
     savedotcodefile_path = dlg.GetPath();
-    SetSaveDotCodeFile(UTF8(savedotcodefile_path));
+    SetSaveDotCodeFile(savedotcodefile_path.mb_str(wxConvUTF8));
 }
 
 static wxString batimp_path;
@@ -932,10 +863,10 @@ EVT_HANDLER_MASK(ImportBatteryFile, "Import battery file...", CMDEN_GB | CMDEN_G
     if (ret == wxYES) {
         wxString msg;
 
-        if (panel->emusys->emuReadBattery(UTF8(fn)))
-            msg.Printf(_("Loaded battery %s"), fn.wc_str());
+        if (panel->emusys->emuReadBattery(fn.mb_fn_str()))
+            msg.Printf(_("Loaded battery %s"), fn.mb_str());
         else
-            msg.Printf(_("Error loading battery %s"), fn.wc_str());
+            msg.Printf(_("Error loading battery %s"), fn.mb_str());
 
         systemScreenMessage(msg);
     }
@@ -965,13 +896,13 @@ EVT_HANDLER_MASK(ImportGamesharkCodeFile, "Import GameShark code file...", CMDEN
             // FIXME: this routine will not work on big-endian systems
             // if the underlying file format is little-endian
             // (fix in gb/gbCheats.cpp)
-            res = gbCheatReadGSCodeFile(UTF8(fn));
+            res = gbCheatReadGSCodeFile(fn.mb_fn_str());
         else {
             // need to select game first
             wxFFile f(fn, wxT("rb"));
 
             if (!f.IsOpened()) {
-                wxLogError(_("Cannot open file %s"), fn.c_str());
+                wxLogError(_("Cannot open file %s"), fn.mb_str());
                 return;
             }
 
@@ -981,7 +912,7 @@ EVT_HANDLER_MASK(ImportGamesharkCodeFile, "Import GameShark code file...", CMDEN
             char buf[14];
 
             if (f.Read(&len, sizeof(len)) != sizeof(len) || wxUINT32_SWAP_ON_BE(len) != 14 || f.Read(buf, 14) != 14 || memcmp(buf, "SharkPortCODES", 14)) {
-                wxLogError(_("Unsupported code file %s"), fn.c_str());
+                wxLogError(_("Unsupported code file %s"), fn.mb_str());
                 return;
             }
 
@@ -1039,7 +970,7 @@ EVT_HANDLER_MASK(ImportGamesharkCodeFile, "Import GameShark code file...", CMDEN
 
                 game = lst->GetSelection();
 
-                if ((int)game == wxNOT_FOUND)
+                if (game == wxNOT_FOUND)
                     game = 0;
             }
 
@@ -1047,13 +978,13 @@ EVT_HANDLER_MASK(ImportGamesharkCodeFile, "Import GameShark code file...", CMDEN
             // FIXME: this routine will not work on big-endian systems
             // if the underlying file format is little-endian
             // (fix in gba/Cheats.cpp)
-            res = cheatsImportGSACodeFile(UTF8(fn), game, v3);
+            res = cheatsImportGSACodeFile(fn.mb_fn_str(), game, v3);
         }
 
         if (res)
-            msg.Printf(_("Loaded code file %s"), fn.wc_str());
+            msg.Printf(_("Loaded code file %s"), fn.mb_str());
         else
-            msg.Printf(_("Error loading code file %s"), fn.wc_str());
+            msg.Printf(_("Error loading code file %s"), fn.mb_str());
 
         systemScreenMessage(msg);
     }
@@ -1082,7 +1013,7 @@ EVT_HANDLER_MASK(ImportGamesharkActionReplaySnapshot,
         bool res;
 
         if (panel->game_type() == IMAGE_GB)
-            res = gbReadGSASnapshot(UTF8(fn));
+            res = gbReadGSASnapshot(fn.mb_fn_str());
         else {
             bool gsv = fn.size() >= 4 && wxString(fn.substr(fn.size() - 4)).IsSameAs(wxT(".gsv"), false);
 
@@ -1090,18 +1021,18 @@ EVT_HANDLER_MASK(ImportGamesharkActionReplaySnapshot,
                 // FIXME: this will fail on big-endian machines if
                 // file format is little-endian
                 // fix in GBA.cpp
-                res = CPUReadGSASPSnapshot(UTF8(fn));
+                res = CPUReadGSASPSnapshot(fn.mb_fn_str());
             else
                 // FIXME: this will fail on big-endian machines if
                 // file format is little-endian
                 // fix in GBA.cpp
-                res = CPUReadGSASnapshot(UTF8(fn));
+                res = CPUReadGSASnapshot(fn.mb_fn_str());
         }
 
         if (res)
-            msg.Printf(_("Loaded snapshot file %s"), fn.wc_str());
+            msg.Printf(_("Loaded snapshot file %s"), fn.mb_str());
         else
-            msg.Printf(_("Error loading snapshot file %s"), fn.wc_str());
+            msg.Printf(_("Error loading snapshot file %s"), fn.mb_str());
 
         systemScreenMessage(msg);
     }
@@ -1123,10 +1054,10 @@ EVT_HANDLER_MASK(ExportBatteryFile, "Export battery file...", CMDEN_GB | CMDEN_G
     wxString fn = dlg.GetPath();
     wxString msg;
 
-    if (panel->emusys->emuWriteBattery(UTF8(fn)))
-        msg.Printf(_("Wrote battery %s"), fn.wc_str());
+    if (panel->emusys->emuWriteBattery(fn.mb_fn_str()))
+        msg.Printf(_("Wrote battery %s"), fn.mb_str());
     else
-        msg.Printf(_("Error writing battery %s"), fn.wc_str());
+        msg.Printf(_("Error writing battery %s"), fn.mb_str());
 
     systemScreenMessage(msg);
 }
@@ -1165,11 +1096,11 @@ EVT_HANDLER_MASK(ExportGamesharkSnapshot, "Export GameShark snapshot...", CMDEN_
     // FIXME: this will fail on big-endian machines if file format is
     // little-endian
     // fix in GBA.cpp
-    if (CPUWriteGSASnapshot(fn.utf8_str(), tit->GetValue().utf8_str(),
-            dsc->GetValue().utf8_str(), n->GetValue().utf8_str()))
-        msg.Printf(_("Saved snapshot file %s"), fn.wc_str());
+    if (CPUWriteGSASnapshot(fn.mb_str(), tit->GetValue().mb_str(),
+            dsc->GetValue().mb_str(), n->GetValue().mb_str()))
+        msg.Printf(_("Saved snapshot file %s"), fn.mb_str());
     else
-        msg.Printf(_("Error saving snapshot file %s"), fn.wc_str());
+        msg.Printf(_("Error saving snapshot file %s"), fn.mb_str());
 
     systemScreenMessage(msg);
 }
@@ -1204,12 +1135,12 @@ EVT_HANDLER_MASK(ScreenCapture, "Screen capture...", CMDEN_GB | CMDEN_GBA)
     }
 
     if (fmt == 0)
-        panel->emusys->emuWritePNG(UTF8(fn));
+        panel->emusys->emuWritePNG(fn.mb_fn_str());
     else
-        panel->emusys->emuWriteBMP(UTF8(fn));
+        panel->emusys->emuWriteBMP(fn.mb_fn_str());
 
     wxString msg;
-    msg.Printf(_("Wrote snapshot %s"), fn.wc_str());
+    msg.Printf(_("Wrote snapshot %s"), fn.mb_str());
     systemScreenMessage(msg);
 }
 
@@ -1222,16 +1153,19 @@ EVT_HANDLER_MASK(RecordSoundStartRecording, "Start sound recording...", CMDEN_NS
 
     if (!sound_exts.size()) {
         sound_extno = -1;
-        int extno = 0;
+        int extno;
+        AVOutputFormat* fmt;
 
-        std::vector<char *> fmts = recording::getSupAudNames();
-        std::vector<char *> exts = recording::getSupAudExts();
+        for (fmt = NULL, extno = 0; (fmt = av_oformat_next(fmt));) {
+            if (!fmt->extensions)
+                continue;
 
-        for (size_t i = 0; i < fmts.size(); ++i)
-        {
-            sound_exts.append(wxString(fmts[i], wxConvLibc));
+            if (fmt->audio_codec == CODEC_ID_NONE)
+                continue;
+
+            sound_exts.append(wxString(fmt->long_name ? fmt->long_name : fmt->name, wxConvLibc));
             sound_exts.append(_(" files ("));
-            wxString ext(exts[i], wxConvLibc);
+            wxString ext(fmt->extensions, wxConvLibc);
             ext.Replace(wxT(","), wxT(";*."));
             ext.insert(0, wxT("*."));
 
@@ -1292,16 +1226,19 @@ EVT_HANDLER_MASK(RecordAVIStartRecording, "Start video recording...", CMDEN_NVRE
 
     if (!vid_exts.size()) {
         vid_extno = -1;
-        int extno = 0;
+        int extno;
+        AVOutputFormat* fmt;
 
-        std::vector<char *> fmts = recording::getSupVidNames();
-        std::vector<char *> exts = recording::getSupVidExts();
+        for (fmt = NULL, extno = 0; (fmt = av_oformat_next(fmt));) {
+            if (!fmt->extensions)
+                continue;
 
-        for (size_t i = 0; i < fmts.size(); ++i)
-        {
-            vid_exts.append(wxString(fmts[i], wxConvLibc));
+            if (fmt->video_codec == CODEC_ID_NONE)
+                continue;
+
+            vid_exts.append(wxString(fmt->long_name ? fmt->long_name : fmt->name, wxConvLibc));
             vid_exts.append(_(" files ("));
-            wxString ext(exts[i], wxConvLibc);
+            wxString ext(fmt->extensions, wxConvLibc);
             ext.Replace(wxT(","), wxT(";*."));
             ext.insert(0, wxT("*."));
 
@@ -1357,61 +1294,17 @@ static wxString mov_path;
 
 EVT_HANDLER_MASK(RecordMovieStartRecording, "Start game recording...", CMDEN_NGREC)
 {
-    static wxString mov_exts;
-    static int mov_extno;
-    static wxString mov_path;
-
-    if (!mov_exts.size()) {
-        mov_extno = -1;
-        int extno = 0;
-
-        std::vector<char*> fmts = getSupMovNamesToRecord();
-        std::vector<char*> exts = getSupMovExtsToRecord();
-
-        for (auto&& fmt : fmts)
-        {
-            mov_exts.append(wxString(fmt, wxConvLibc));
-            mov_exts.append(_(" files ("));
-            wxString ext(exts[extno], wxConvLibc);
-            ext.Replace(wxT(","), wxT(";*."));
-            ext.insert(0, wxT("*."));
-
-            if (mov_extno < 0 && ext.find(wxT("*.vmv")) != wxString::npos)
-                mov_extno = extno;
-
-            mov_exts.append(ext);
-            mov_exts.append(wxT(")|"));
-            mov_exts.append(ext);
-            mov_exts.append(wxT('|'));
-            extno++;
-        }
-
-        if (mov_extno < 0)
-            mov_extno = extno;
-    }
-
     mov_path = GetGamePath(gopts.recording_dir);
-    wxString def_name = panel->game_name();
-    wxString extoff = mov_exts;
-
-    for (int i = 0; i < mov_extno; i++) {
-        extoff = extoff.Mid(extoff.Find(wxT('|')) + 1);
-        extoff = extoff.Mid(extoff.Find(wxT('|')) + 1);
-    }
-
-    extoff = extoff.Mid(extoff.Find(wxT('|')) + 2); // skip *
-    def_name += extoff.Left(wxStrcspn(extoff, wxT(";|")));
+    wxString def_name = panel->game_name() + wxT(".vmv");
     wxFileDialog dlg(this, _("Select output file"), mov_path, def_name,
-        mov_exts, wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
-    dlg.SetFilterIndex(mov_extno);
+        _("VBA Movie files|*.vmv"), wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
     int ret = ShowModal(&dlg);
-    mov_extno = dlg.GetFilterIndex();
     mov_path = dlg.GetDirectory();
 
     if (ret != wxID_OK)
         return;
 
-    systemStartGameRecording(dlg.GetPath(), getSupMovFormatsToRecord()[mov_extno]);
+    systemStartGameRecording(dlg.GetPath());
 }
 
 EVT_HANDLER_MASK(RecordMovieStopRecording, "Stop game recording", CMDEN_GREC)
@@ -1421,62 +1314,18 @@ EVT_HANDLER_MASK(RecordMovieStopRecording, "Stop game recording", CMDEN_GREC)
 
 EVT_HANDLER_MASK(PlayMovieStartPlaying, "Start playing movie...", CMDEN_NGREC | CMDEN_NGPLAY)
 {
-    static wxString mov_exts;
-    static int mov_extno;
-    static wxString mov_path;
-
-    if (!mov_exts.size()) {
-        mov_extno = -1;
-        int extno = 0;
-
-        std::vector<char*> fmts = getSupMovNamesToPlayback();
-        std::vector<char*> exts = getSupMovExtsToPlayback();
-
-        for (size_t i = 0; i < fmts.size(); ++i)
-        {
-            mov_exts.append(wxString(fmts[i], wxConvLibc));
-            mov_exts.append(_(" files ("));
-            wxString ext(exts[i], wxConvLibc);
-            ext.Replace(wxT(","), wxT(";*."));
-            ext.insert(0, wxT("*."));
-
-            if (mov_extno < 0 && ext.find(wxT("*.vmv")) != wxString::npos)
-                mov_extno = extno;
-
-            mov_exts.append(ext);
-            mov_exts.append(wxT(")|"));
-            mov_exts.append(ext);
-            mov_exts.append(wxT('|'));
-            extno++;
-        }
-
-        if (mov_extno < 0)
-            mov_extno = extno;
-    }
-
     mov_path = GetGamePath(gopts.recording_dir);
     systemStopGamePlayback();
-    wxString def_name = panel->game_name();
-    wxString extoff = mov_exts;
-
-    for (int i = 0; i < mov_extno; i++) {
-        extoff = extoff.Mid(extoff.Find(wxT('|')) + 1);
-        extoff = extoff.Mid(extoff.Find(wxT('|')) + 1);
-    }
-
-    extoff = extoff.Mid(extoff.Find(wxT('|')) + 2); // skip *
-    def_name += extoff.Left(wxStrcspn(extoff, wxT(";|")));
+    wxString def_name = panel->game_name() + wxT(".vmv");
     wxFileDialog dlg(this, _("Select file"), mov_path, def_name,
-        mov_exts, wxFD_OPEN | wxFD_FILE_MUST_EXIST);
-    dlg.SetFilterIndex(mov_extno);
+        _("VBA Movie files|*.vmv"), wxFD_OPEN | wxFD_FILE_MUST_EXIST);
     int ret = ShowModal(&dlg);
-    mov_extno = dlg.GetFilterIndex();
     mov_path = dlg.GetDirectory();
 
     if (ret != wxID_OK)
         return;
 
-    systemStartGamePlayback(dlg.GetPath(), getSupMovFormatsToPlayback()[mov_extno]);
+    systemStartGamePlayback(dlg.GetPath());
 }
 
 EVT_HANDLER_MASK(PlayMovieStopPlaying, "Stop playing movie", CMDEN_GPLAY)
@@ -1499,10 +1348,7 @@ EVT_HANDLER(wxID_EXIT, "Exit")
 // Emulation menu
 EVT_HANDLER(Pause, "Pause (toggle)")
 {
-    bool menuPress = false;
-    GetMenuOptionBool("Pause", &menuPress);
-    toggleBooleanVar(&menuPress, &paused);
-    SetMenuOption("Pause", paused ? 1 : 0);
+    GetMenuOptionBool("Pause", paused);
 
     if (paused)
         panel->Pause();
@@ -1519,10 +1365,7 @@ EVT_HANDLER(Pause, "Pause (toggle)")
 // new
 EVT_HANDLER_MASK(EmulatorSpeedupToggle, "Turbo mode (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    GetMenuOptionBool("EmulatorSpeedupToggle", &menuPress);
-    toggleBooleanVar(&menuPress, &turbo);
-    SetMenuOption("EmulatorSpeedupToggle", turbo ? 1 : 0);
+    GetMenuOptionBool("EmulatorSpeedupToggle", turbo);
 }
 
 EVT_HANDLER_MASK(Reset, "Reset", CMDEN_GB | CMDEN_GBA)
@@ -1538,178 +1381,22 @@ EVT_HANDLER(ToggleFullscreen, "Full screen (toggle)")
 
 EVT_HANDLER(JoypadAutofireA, "Autofire A (toggle)")
 {
-    bool menuPress = false;
-    GetMenuOptionBool("JoypadAutofireA", &menuPress);
-    toggleBitVar(&menuPress, &autofire, KEYM_A);
-    SetMenuOption("JoypadAutofireA", menuPress ? 1 : 0);
-    GetMenuOptionInt("JoypadAutofireA", &autofire, KEYM_A);
+    GetMenuOptionInt("JoypadAutofireA", autofire, KEYM_A);
 }
 
 EVT_HANDLER(JoypadAutofireB, "Autofire B (toggle)")
 {
-    bool menuPress = false;
-    GetMenuOptionBool("JoypadAutofireB", &menuPress);
-    toggleBitVar(&menuPress, &autofire, KEYM_B);
-    SetMenuOption("JoypadAutofireB", menuPress ? 1 : 0);
-    GetMenuOptionInt("JoypadAutofireB", &autofire, KEYM_B);
+    GetMenuOptionInt("JoypadAutofireB", autofire, KEYM_B);
 }
 
 EVT_HANDLER(JoypadAutofireL, "Autofire L (toggle)")
 {
-    bool menuPress = false;
-    GetMenuOptionBool("JoypadAutofireL", &menuPress);
-    toggleBitVar(&menuPress, &autofire, KEYM_L);
-    SetMenuOption("JoypadAutofireL", menuPress ? 1 : 0);
-    GetMenuOptionInt("JoypadAutofireL", &autofire, KEYM_L);
+    GetMenuOptionInt("JoypadAutofireL", autofire, KEYM_LEFT);
 }
 
 EVT_HANDLER(JoypadAutofireR, "Autofire R (toggle)")
 {
-    bool menuPress = false;
-    GetMenuOptionBool("JoypadAutofireR", &menuPress);
-    toggleBitVar(&menuPress, &autofire, KEYM_R);
-    SetMenuOption("JoypadAutofireR", menuPress ? 1 : 0);
-    GetMenuOptionInt("JoypadAutofireR", &autofire, KEYM_R);
-}
-
-EVT_HANDLER(JoypadAutoholdUp, "Autohold Up (toggle)")
-{
-    bool menuPress = false;
-    char keyName[] = "JoypadAutoholdUp";
-    int keym = KEYM_UP;
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &autohold, keym);
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &autohold, keym);
-}
-
-EVT_HANDLER(JoypadAutoholdDown, "Autohold Down (toggle)")
-{
-    bool menuPress = false;
-    char keyName[] = "JoypadAutoholdDown";
-    int keym = KEYM_DOWN;
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &autohold, keym);
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &autohold, keym);
-}
-
-EVT_HANDLER(JoypadAutoholdLeft, "Autohold Left (toggle)")
-{
-    bool menuPress = false;
-    char keyName[] = "JoypadAutoholdLeft";
-    int keym = KEYM_LEFT;
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &autohold, keym);
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &autohold, keym);
-}
-
-EVT_HANDLER(JoypadAutoholdRight, "Autohold Right (toggle)")
-{
-    bool menuPress = false;
-    char keyName[] = "JoypadAutoholdRight";
-    int keym = KEYM_RIGHT;
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &autohold, keym);
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &autohold, keym);
-}
-
-EVT_HANDLER(JoypadAutoholdA, "Autohold A (toggle)")
-{
-    bool menuPress = false;
-    char keyName[] = "JoypadAutoholdA";
-    int keym = KEYM_A;
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &autohold, keym);
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &autohold, keym);
-}
-
-EVT_HANDLER(JoypadAutoholdB, "Autohold B (toggle)")
-{
-    bool menuPress = false;
-    char keyName[] = "JoypadAutoholdB";
-    int keym = KEYM_B;
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &autohold, keym);
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &autohold, keym);
-}
-
-EVT_HANDLER(JoypadAutoholdL, "Autohold L (toggle)")
-{
-    bool menuPress = false;
-    char keyName[] = "JoypadAutoholdL";
-    int keym = KEYM_L;
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &autohold, keym);
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &autohold, keym);
-}
-
-EVT_HANDLER(JoypadAutoholdR, "Autohold R (toggle)")
-{
-    bool menuPress = false;
-    char keyName[] = "JoypadAutoholdR";
-    int keym = KEYM_R;
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &autohold, keym);
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &autohold, keym);
-}
-
-EVT_HANDLER(JoypadAutoholdSelect, "Autohold Select (toggle)")
-{
-    bool menuPress = false;
-    char keyName[] = "JoypadAutoholdSelect";
-    int keym = KEYM_SELECT;
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &autohold, keym);
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &autohold, keym);
-}
-
-EVT_HANDLER(JoypadAutoholdStart, "Autohold Start (toggle)")
-{
-    bool menuPress = false;
-    char keyName[] = "JoypadAutoholdStart";
-    int keym = KEYM_START;
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &autohold, keym);
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &autohold, keym);
-}
-
-#include "background-input.h"
-
-EVT_HANDLER(AllowKeyboardBackgroundInput, "Allow keyboard background input (toggle)")
-{
-    bool menuPress = false;
-    GetMenuOptionBool("AllowKeyboardBackgroundInput", &menuPress);
-    toggleBooleanVar(&menuPress, &allowKeyboardBackgroundInput);
-    SetMenuOption("AllowKeyboardBackgroundInput", allowKeyboardBackgroundInput ? 1 : 0);
-
-    disableKeyboardBackgroundInput();
-
-    if (allowKeyboardBackgroundInput) {
-        if (panel && panel->panel) {
-            enableKeyboardBackgroundInput(panel->panel->GetWindow());
-        }
-    }
-
-    update_opts();
-}
-
-EVT_HANDLER(AllowJoystickBackgroundInput, "Allow joystick background input (toggle)")
-{
-    bool menuPress = false;
-    GetMenuOptionBool("AllowJoystickBackgroundInput", &menuPress);
-    toggleBooleanVar(&menuPress, &allowJoystickBackgroundInput);
-    SetMenuOption("AllowJoystickBackgroundInput", allowJoystickBackgroundInput ? 1 : 0);
-
-    update_opts();
+    GetMenuOptionInt("JoypadAutofireR", autofire, KEYM_RIGHT);
 }
 
 EVT_HANDLER_MASK(LoadGameRecent, "Load most recent save", CMDEN_SAVST)
@@ -1719,10 +1406,7 @@ EVT_HANDLER_MASK(LoadGameRecent, "Load most recent save", CMDEN_SAVST)
 
 EVT_HANDLER(LoadGameAutoLoad, "Auto load most recent save (toggle)")
 {
-    bool menuPress = false;
-    GetMenuOptionBool("LoadGameAutoLoad", &menuPress);
-    toggleBooleanVar(&menuPress, &gopts.autoload_state);
-    SetMenuOption("LoadGameAutoLoad", gopts.autoload_state ? 1 : 0);
+    GetMenuOptionBool("LoadGameAutoLoad", gopts.autoload_state);
     update_opts();
 }
 
@@ -1797,22 +1481,14 @@ EVT_HANDLER_MASK(Load, "Load state...", CMDEN_GB | CMDEN_GBA)
 // new
 EVT_HANDLER(KeepSaves, "Do not load battery saves (toggle)")
 {
-    bool menuPress = false;
-    GetMenuOptionBool("KeepSaves", &menuPress);
-    toggleBitVar(&menuPress, &skipSaveGameBattery, 1);
-    SetMenuOption("KeepSaves", menuPress ? 1 : 0);
-    GetMenuOptionInt("KeepSaves", &skipSaveGameBattery, 1);
+    GetMenuOptionInt("KeepSaves", skipSaveGameBattery, 1);
     update_opts();
 }
 
 // new
 EVT_HANDLER(KeepCheats, "Do not change cheat list (toggle)")
 {
-    bool menuPress = false;
-    GetMenuOptionBool("KeepCheats", &menuPress);
-    toggleBitVar(&menuPress, &skipSaveGameCheats, 1);
-    SetMenuOption("KeepCheats", menuPress ? 1 : 0);
-    GetMenuOptionInt("KeepCheats", &skipSaveGameCheats, 1);
+    GetMenuOptionInt("KeepCheats", skipSaveGameCheats, 1);
     update_opts();
 }
 
@@ -1905,20 +1581,12 @@ EVT_HANDLER_MASK(SaveGameSlot, "Save current state slot", CMDEN_GB | CMDEN_GBA)
 EVT_HANDLER_MASK(IncrGameSlot, "Increase state slot number", CMDEN_GB | CMDEN_GBA)
 {
     state_slot = (state_slot + 1) % 10;
-
-    wxString msg;
-    msg.Printf(_("Current state slot #%d"), state_slot);
-    systemScreenMessage(msg);
 }
 
 // new
 EVT_HANDLER_MASK(DecrGameSlot, "Decrease state slot number", CMDEN_GB | CMDEN_GBA)
 {
     state_slot = (state_slot + 9) % 10;
-
-    wxString msg;
-    msg.Printf(_("Current state slot #%d"), state_slot);
-    systemScreenMessage(msg);
 }
 
 // new
@@ -1926,10 +1594,6 @@ EVT_HANDLER_MASK(IncrGameSlotSave, "Increase state slot number and save", CMDEN_
 {
     state_slot = (state_slot + 1) % 10;
     panel->SaveState(state_slot + 1);
-
-    wxString msg;
-    msg.Printf(_("Current state slot #%d"), state_slot);
-    systemScreenMessage(msg);
 }
 
 EVT_HANDLER_MASK(Rewind, "Rewind", CMDEN_REWIND)
@@ -1941,7 +1605,7 @@ EVT_HANDLER_MASK(Rewind, "Rewind", CMDEN_REWIND)
     // if within 5 seconds of last one, and > 1 state, delete last state & move back
     // FIXME: 5 should actually be user-configurable
     // maybe instead of 5, 10% of rewind_interval
-    if (panel->num_rewind_states > 1 && (gopts.rewind_interval <= 5 || (int)panel->rewind_time / 6 > gopts.rewind_interval - 5)) {
+    if (panel->num_rewind_states > 1 && (gopts.rewind_interval <= 5 || panel->rewind_time / 6 > gopts.rewind_interval - 5)) {
         --panel->num_rewind_states;
         panel->next_rewind_state = rew_st;
 
@@ -1973,10 +1637,7 @@ EVT_HANDLER_MASK(CheatsSearch, "Create cheat...", CMDEN_GB | CMDEN_GBA)
 // new
 EVT_HANDLER(CheatsAutoSaveLoad, "Auto save/load cheats (toggle)")
 {
-    bool menuPress = false;
-    GetMenuOptionBool("CheatsAutoSaveLoad", &menuPress);
-    toggleBooleanVar(&menuPress, &gopts.autoload_cheats);
-    SetMenuOption("CheatsAutoSaveLoad", gopts.autoload_cheats ? 1 : 0);
+    GetMenuOptionBool("CheatsAutoSaveLoad", gopts.autoload_cheats);
     update_opts();
 }
 
@@ -1984,133 +1645,74 @@ EVT_HANDLER(CheatsAutoSaveLoad, "Auto save/load cheats (toggle)")
 // changed for convenience to match internal variable functionality
 EVT_HANDLER(CheatsEnable, "Enable cheats (toggle)")
 {
-    bool menuPress = false;
-    GetMenuOptionBool("CheatsEnable", &menuPress);
-    toggleBitVar(&menuPress, &cheatsEnabled, 1);
-    SetMenuOption("CheatsEnable", menuPress ? 1 : 0);
-    GetMenuOptionInt("CheatsEnable", &cheatsEnabled, 1);
-    update_opts();
-}
-
-EVT_HANDLER(ColorizerHack, "Enable Colorizer Hack (toggle)")
-{
-    int val = 0;
-    GetMenuOptionInt("ColorizerHack", &val, 1);
-
-    if (val == 1 && useBiosFileGB == 1) {
-        wxLogError(_("Cannot use Colorizer Hack when GB BIOS File is enabled."));
-        val = 0;
-        SetMenuOption("ColorizerHack", 0);
-    }
-
-    colorizerHack = val;
-
+    GetMenuOptionInt("CheatsEnable", cheatsEnabled, 1);
     update_opts();
 }
 
 // Debug menu
 EVT_HANDLER_MASK(VideoLayersBG0, "Video layer BG0 (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "VideoLayersBG0";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &layerSettings, (1 << 8));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &layerSettings, (1 << 8));
+    GetMenuOptionInt("VideoLayersBG0", layerSettings, (1 << 8));
     layerEnable = DISPCNT & layerSettings;
     CPUUpdateRenderBuffers(false);
 }
 
 EVT_HANDLER_MASK(VideoLayersBG1, "Video layer BG1 (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "VideoLayersBG1";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &layerSettings, (1 << 9));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &layerSettings, (1 << 9));
+    GetMenuOptionInt("VideoLayersBG1", layerSettings, (1 << 9));
     layerEnable = DISPCNT & layerSettings;
     CPUUpdateRenderBuffers(false);
 }
 
 EVT_HANDLER_MASK(VideoLayersBG2, "Video layer BG2 (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "VideoLayersBG2";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &layerSettings, (1 << 10));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &layerSettings, (1 << 10));
+    GetMenuOptionInt("VideoLayersBG2", layerSettings, (1 << 10));
     layerEnable = DISPCNT & layerSettings;
     CPUUpdateRenderBuffers(false);
 }
 
 EVT_HANDLER_MASK(VideoLayersBG3, "Video layer BG3 (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "VideoLayersBG3";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &layerSettings, (1 << 11));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &layerSettings, (1 << 11));
+    GetMenuOptionInt("VideoLayersBG3", layerSettings, (1 << 11));
     layerEnable = DISPCNT & layerSettings;
     CPUUpdateRenderBuffers(false);
 }
 
 EVT_HANDLER_MASK(VideoLayersOBJ, "Video layer OBJ (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "VideoLayersOBJ";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &layerSettings, (1 << 12));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &layerSettings, (1 << 12));
+    GetMenuOptionInt("VideoLayersOBJ", layerSettings, (1 << 12));
     layerEnable = DISPCNT & layerSettings;
     CPUUpdateRenderBuffers(false);
 }
 
 EVT_HANDLER_MASK(VideoLayersWIN0, "Video layer WIN0 (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "VideoLayersWIN0";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &layerSettings, (1 << 13));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &layerSettings, (1 << 13));
+    GetMenuOptionInt("VideoLayersWIN0", layerSettings, (1 << 13));
     layerEnable = DISPCNT & layerSettings;
     CPUUpdateRenderBuffers(false);
 }
 
 EVT_HANDLER_MASK(VideoLayersWIN1, "Video layer WIN1 (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "VideoLayersWIN1";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &layerSettings, (1 << 14));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &layerSettings, (1 << 14));
+    GetMenuOptionInt("VideoLayersWIN1", layerSettings, (1 << 14));
     layerEnable = DISPCNT & layerSettings;
     CPUUpdateRenderBuffers(false);
 }
 
 EVT_HANDLER_MASK(VideoLayersOBJWIN, "Video layer OBJWIN (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "VideoLayersOBJWIN";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &layerSettings, (1 << 15));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &layerSettings, (1 << 15));
+    GetMenuOptionInt("VideoLayersOBJWIN", layerSettings, (1 << 15));
     layerEnable = DISPCNT & layerSettings;
     CPUUpdateRenderBuffers(false);
 }
 
+// not in menu
 EVT_HANDLER_MASK(VideoLayersReset, "Show all video layers", CMDEN_GB | CMDEN_GBA)
 {
 #define set_vl(s)                                     \
     do {                                              \
         int id = XRCID(s);                            \
-        for (size_t i = 0; i < checkable_mi.size(); i++) \
+        for (int i = 0; i < checkable_mi.size(); i++) \
             if (checkable_mi[i].cmd == id) {          \
                 checkable_mi[i].mi->Check(true);      \
                 break;                                \
@@ -2131,72 +1733,42 @@ EVT_HANDLER_MASK(VideoLayersReset, "Show all video layers", CMDEN_GB | CMDEN_GBA
 
 EVT_HANDLER_MASK(SoundChannel1, "Sound Channel 1 (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "SoundChannel1";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &gopts.sound_en, (1 << 0));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &gopts.sound_en, (1 << 0));
+    GetMenuOptionInt("SoundChannel1", gopts.sound_en, (1 << 0));
     soundSetEnable(gopts.sound_en);
     update_opts();
 }
 
 EVT_HANDLER_MASK(SoundChannel2, "Sound Channel 2 (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "SoundChannel2";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &gopts.sound_en, (1 << 1));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &gopts.sound_en, (1 << 1));
+    GetMenuOptionInt("SoundChannel2", gopts.sound_en, (1 << 1));
     soundSetEnable(gopts.sound_en);
     update_opts();
 }
 
 EVT_HANDLER_MASK(SoundChannel3, "Sound Channel 3 (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "SoundChannel3";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &gopts.sound_en, (1 << 2));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &gopts.sound_en, (1 << 2));
+    GetMenuOptionInt("SoundChannel3", gopts.sound_en, (1 << 2));
     soundSetEnable(gopts.sound_en);
     update_opts();
 }
 
 EVT_HANDLER_MASK(SoundChannel4, "Sound Channel 4 (toggle)", CMDEN_GB | CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "SoundChannel4";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &gopts.sound_en, (1 << 3));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &gopts.sound_en, (1 << 3));
+    GetMenuOptionInt("SoundChannel4", gopts.sound_en, (1 << 3));
     soundSetEnable(gopts.sound_en);
     update_opts();
 }
 
 EVT_HANDLER_MASK(DirectSoundA, "Direct Sound A (toggle)", CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "DirectSoundA";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &gopts.sound_en, (1 << 8));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &gopts.sound_en, (1 << 8));
+    GetMenuOptionInt("DirectSoundA", gopts.sound_en, (1 << 8));
     soundSetEnable(gopts.sound_en);
     update_opts();
 }
 
 EVT_HANDLER_MASK(DirectSoundB, "Direct Sound B (toggle)", CMDEN_GBA)
 {
-    bool menuPress = false;
-    char keyName[] = "DirectSoundB";
-    GetMenuOptionBool(keyName, &menuPress);
-    toggleBitVar(&menuPress, &gopts.sound_en, (1 << 9));
-    SetMenuOption(keyName, menuPress ? 1 : 0);
-    GetMenuOptionInt(keyName, &gopts.sound_en, (1 << 9));
+    GetMenuOptionInt("DirectSoundB", gopts.sound_en, (1 << 9));
     soundSetEnable(gopts.sound_en);
     update_opts();
 }
@@ -2305,7 +1877,6 @@ EVT_HANDLER_MASK(TileViewer, "Tile Viewer...", CMDEN_GB | CMDEN_GBA)
     TileViewer();
 }
 
-#ifndef NO_DEBUGGER
 extern int remotePort;
 
 int GetGDBPort(MainFrame* mf)
@@ -2326,29 +1897,23 @@ int GetGDBPort(MainFrame* mf)
 #endif
         65535, mf);
 }
-#endif
 
 EVT_HANDLER(DebugGDBPort, "Configure port...")
 {
-#ifndef NO_DEBUGGER
     int port_selected = GetGDBPort(this);
 
     if (port_selected != -1) {
         gdbPort = port_selected;
         update_opts();
     }
-#endif
 }
 
 EVT_HANDLER(DebugGDBBreakOnLoad, "Break on load")
 {
-#ifndef NO_DEBUGGER
-    GetMenuOptionInt("DebugGDBBreakOnLoad", &gdbBreakOnLoad, 1);
+    GetMenuOptionInt("DebugGDBBreakOnLoad", gdbBreakOnLoad, 1);
     update_opts();
-#endif
 }
 
-#ifndef NO_DEBUGGER
 void MainFrame::GDBBreak()
 {
     ModalPause mp;
@@ -2371,7 +1936,7 @@ void MainFrame::GDBBreak()
                 if (!debugOpenPty())
                     return;
 
-                msg.Printf(_("Waiting for connection at %s"), debugGetSlavePty().wc_str());
+                msg.Printf(_("Waiting for connection at %s"), debugGetSlavePty().mb_str());
             } else
 #endif
             {
@@ -2403,6 +1968,7 @@ void MainFrame::GDBBreak()
 
             if (connected) {
                 remotePort = gdbPort;
+                debugger = true;
                 emulating = 1;
                 dbgMain = remoteStubMain;
                 dbgSignal = remoteStubSignal;
@@ -2410,7 +1976,6 @@ void MainFrame::GDBBreak()
                 cmd_enable &= ~(CMDEN_NGDB_ANY | CMDEN_NGDB_GBA);
                 cmd_enable |= CMDEN_GDB;
                 enable_menus();
-                debugger = true;
             } else {
                 remoteCleanUp();
             }
@@ -2427,28 +1992,22 @@ void MainFrame::GDBBreak()
         }
     }
 }
-#endif
 
 EVT_HANDLER_MASK(DebugGDBBreak, "Break into GDB", CMDEN_NGDB_GBA | CMDEN_GDB)
 {
-#ifndef NO_DEBUGGER
     GDBBreak();
-#endif
 }
 
 EVT_HANDLER_MASK(DebugGDBDisconnect, "Disconnect GDB", CMDEN_GDB)
 {
-#ifndef NO_DEBUGGER
     debugger = false;
     dbgMain = NULL;
     dbgSignal = NULL;
     dbgOutput = NULL;
-    remotePort = 0;
     remoteCleanUp();
     cmd_enable &= ~CMDEN_GDB;
     cmd_enable |= CMDEN_NGDB_GBA | CMDEN_NGDB_ANY;
     enable_menus();
-#endif
 }
 
 // Options menu
@@ -2479,32 +2038,6 @@ EVT_HANDLER(GeneralConfigure, "General options...")
             panel->rewind_time = gopts.rewind_interval * 6;
         }
     }
-}
-
-EVT_HANDLER(SpeedupConfigure, "Speedup / Turbo options...")
-{
-    wxDialog* dlg = GetXRCDialog("SpeedupConfig");
-
-    unsigned save_speedup_throttle            = speedup_throttle;
-    unsigned save_speedup_frame_skip          = speedup_frame_skip;
-    bool     save_speedup_throttle_frame_skip = speedup_throttle_frame_skip;
-
-    if (ShowModal(dlg) == wxID_OK)
-        update_opts();
-    else {
-        // Restore values if cancel pressed.
-        speedup_throttle            = save_speedup_throttle;
-        speedup_frame_skip          = save_speedup_frame_skip;
-        speedup_throttle_frame_skip = save_speedup_throttle_frame_skip;
-    }
-}
-
-EVT_HANDLER(UIConfigure, "UI Settings...")
-{
-    wxDialog* dlg = GetXRCDialog("UIConfig");
-
-    if (ShowModal(dlg) == wxID_OK)
-        update_opts();
 }
 
 EVT_HANDLER(GameBoyConfigure, "Game Boy options...")
@@ -2553,36 +2086,6 @@ EVT_HANDLER(GameBoyConfigure, "Game Boy options...")
     }
 
     update_opts();
-}
-
-EVT_HANDLER(SetSize1x, "1x")
-{
-    config::OptDispScale()->SetDouble(1);
-}
-
-EVT_HANDLER(SetSize2x, "2x")
-{
-    config::OptDispScale()->SetDouble(2);
-}
-
-EVT_HANDLER(SetSize3x, "3x")
-{
-    config::OptDispScale()->SetDouble(3);
-}
-
-EVT_HANDLER(SetSize4x, "4x")
-{
-    config::OptDispScale()->SetDouble(4);
-}
-
-EVT_HANDLER(SetSize5x, "5x")
-{
-    config::OptDispScale()->SetDouble(5);
-}
-
-EVT_HANDLER(SetSize6x, "6x")
-{
-    config::OptDispScale()->SetDouble(6);
 }
 
 EVT_HANDLER(GameBoyAdvanceConfigure, "Game Boy Advance options...")
@@ -2729,7 +2232,7 @@ EVT_HANDLER(GameBoyAdvanceConfigure, "Game Boy Advance options...")
             vba_over.append(wxTextFile::GetEOL());
             fn.Mkdir(0777, wxPATH_MKDIR_FULL);
             wxTempFileOutputStream fos(fn.GetFullPath());
-            fos.Write(vba_over.c_str(), vba_over.size());
+            fos.Write(vba_over.mb_str(), vba_over.size());
             fos.Commit();
         }
     }
@@ -2739,22 +2242,36 @@ EVT_HANDLER(GameBoyAdvanceConfigure, "Game Boy Advance options...")
 
 EVT_HANDLER_MASK(DisplayConfigure, "Display options...", CMDEN_NREC_ANY)
 {
+    bool fs = fullScreen;
+    wxVideoMode dm = gopts.fs_mode;
+
     if (gopts.max_threads != 1) {
         gopts.max_threads = wxThread::GetCPUCount();
     }
 
-    // Just in case GetCPUCount() returns 0 or -1
-    if (gopts.max_threads < 0) {
+    //Just in case GetCPUCount() returns 0
+    if (!gopts.max_threads)
         gopts.max_threads = 1;
-    }
 
     wxDialog* dlg = GetXRCDialog("DisplayConfig");
-    if (ShowModal(dlg) != wxID_OK) {
+
+    if (ShowModal(dlg) != wxID_OK)
         return;
+
+    if (frameSkip >= 0)
+        systemFrameSkip = frameSkip;
+
+    if (fs != fullScreen) {
+        panel->ShowFullScreen(fullScreen);
+    } else if (panel->IsFullScreen() && dm != gopts.fs_mode) {
+        // maybe not the best way to do this..
+        panel->ShowFullScreen(false);
+        panel->ShowFullScreen(true);
     }
 
-    if (frameSkip >= 0) {
-        systemFrameSkip = frameSkip;
+    if (panel->panel) {
+        panel->panel->Destroy();
+        panel->panel = NULL;
     }
 
     update_opts();
@@ -2762,12 +2279,29 @@ EVT_HANDLER_MASK(DisplayConfigure, "Display options...", CMDEN_NREC_ANY)
 
 EVT_HANDLER_MASK(ChangeFilter, "Change Pixel Filter", CMDEN_NREC_ANY)
 {
-    config::OptDispFilter()->NextFilter();
+    int filt = gopts.filter;
+
+    if (filt == FF_PLUGIN || ++gopts.filter == FF_PLUGIN && gopts.filter_plugin.empty()) {
+        gopts.filter = 0;
+    }
+
+    update_opts();
+
+    if (panel->panel) {
+        panel->panel->Destroy();
+        panel->panel = NULL;
+    }
 }
 
 EVT_HANDLER_MASK(ChangeIFB, "Change Interframe Blending", CMDEN_NREC_ANY)
 {
-    config::OptDispIFB()->NextInterframe();
+    gopts.ifb = (gopts.ifb + 1) % 3;
+    update_opts();
+
+    if (panel->panel) {
+        panel->panel->Destroy();
+        panel->panel = NULL;
+    }
 }
 
 EVT_HANDLER_MASK(SoundConfigure, "Sound options...", CMDEN_NREC_ANY)
@@ -2801,12 +2335,9 @@ EVT_HANDLER_MASK(SoundConfigure, "Sound options...", CMDEN_NREC_ANY)
         // otherwise reload if API changes
         (oapi != gopts.audio_api || odev != gopts.audio_dev ||
             // or init-only options
-            (oapi == AUD_XAUDIO2 && oupmix != gopts.upmix) || (oapi == AUD_FAUDIO && oupmix != gopts.upmix) || (oapi == AUD_DIRECTSOUND && ohw != gopts.dsound_hw_accel))) {
+            (oapi == AUD_XAUDIO2 && oupmix != gopts.upmix) || (oapi == AUD_DIRECTSOUND && ohw != gopts.dsound_hw_accel))) {
         soundShutdown();
-
-        if (!soundInit()) {
-            wxLogError(_("Could not initialize the sound driver!"));
-        }
+        soundInit();
     }
 
     soundSetVolume((float)gopts.sound_vol / 100.0);
@@ -2824,17 +2355,11 @@ EVT_HANDLER(EmulatorDirectories, "Directories...")
 EVT_HANDLER(JoypadConfigure, "Joypad options...")
 {
     wxDialog* dlg = GetXRCDialog("JoypadConfig");
-    joy.PollAllJoysticks();
-
-    auto frame = wxGetApp().frame;
-    bool joy_timer = frame->IsJoyPollTimerRunning();
-
-    if (!joy_timer) frame->StartJoyPollTimer();
+    joy.Attach(NULL);
+    joy.Add();
 
     if (ShowModal(dlg) == wxID_OK)
         update_opts();
-
-    if (!joy_timer) frame->StopJoyPollTimer();
 
     SetJoystick();
 }
@@ -2842,45 +2367,9 @@ EVT_HANDLER(JoypadConfigure, "Joypad options...")
 EVT_HANDLER(Customize, "Customize UI...")
 {
     wxDialog* dlg = GetXRCDialog("AccelConfig");
-    joy.PollAllJoysticks();
-
-    auto frame = wxGetApp().frame;
-    bool joy_timer = frame->IsJoyPollTimerRunning();
-
-    if (!joy_timer) frame->StartJoyPollTimer();
 
     if (ShowModal(dlg) == wxID_OK)
         update_opts();
-
-    if (!joy_timer) frame->StopJoyPollTimer();
-
-    SetJoystick();
-}
-
-#ifndef NO_ONLINEUPDATES
-#include "autoupdater/autoupdater.h"
-#endif // NO_ONLINEUPDATES
-
-EVT_HANDLER(UpdateEmu, "Check for updates...")
-{
-#ifndef NO_ONLINEUPDATES
-    checkUpdatesUi();
-#endif // NO_ONLINEUPDATES
-}
-
-EVT_HANDLER(FactoryReset, "Factory Reset...")
-{
-    wxMessageDialog dlg(NULL, wxString(wxT(
-"YOUR CONFIGURATION WILL BE DELETED!\n\n")) + wxString(wxT(
-"Are you sure?")),
-                        wxT("FACTORY RESET"), wxYES_NO | wxNO_DEFAULT | wxCENTRE);
-
-    if (dlg.ShowModal() == wxID_YES) {
-        wxGetApp().cfg->DeleteAll();
-
-        wxExecute(wxStandardPaths::Get().GetExecutablePath(), wxEXEC_ASYNC);
-        Close(true);
-    }
 }
 
 EVT_HANDLER(BugReport, "Report bugs...")
@@ -2903,14 +2392,24 @@ EVT_HANDLER(wxID_ABOUT, "About...")
 {
     wxAboutDialogInfo ai;
     ai.SetName(wxT("VisualBoyAdvance-M"));
-    wxString version(vbam_version);
+    wxString version = wxT("");
+#ifndef FINAL_BUILD
+#ifndef VERSION
+# define VERSION "git"
+#endif
+
+    if (!version.IsEmpty())
+        version = version + wxT("-");
+
+    version = version + wxT(VERSION);
+#endif
     ai.SetVersion(version);
     // setting website, icon, license uses custom aboutbox on win32 & macosx
     // but at least win32 standard about is nothing special
     ai.SetWebSite(wxT("http://www.vba-m.com/"));
-    ai.SetIcon(GetIcons().GetIcon(wxSize(32, 32), wxIconBundle::FALLBACK_NEAREST_LARGER));
+    ai.SetIcon(GetIcon());
     ai.SetDescription(_("Nintendo GameBoy (+Color+Advance) emulator."));
-    ai.SetCopyright(_("Copyright (C) 1999-2003 Forgotten\nCopyright (C) 2004-2006 VBA development team\nCopyright (C) 2007-2020 VBA-M development team"));
+    ai.SetCopyright(_("Copyright (C) 1999-2003 Forgotten\nCopyright (C) 2004-2006 VBA development team\nCopyright (C) 2007-2017 VBA-M development team"));
     ai.SetLicense(_("This program is free software: you can redistribute it and/or modify\n"
                     "it under the terms of the GNU General Public License as published by\n"
                     "the Free Software Foundation, either version 2 of the License, or\n"
@@ -2950,8 +2449,6 @@ EVT_HANDLER(wxID_ABOUT, "About...")
     ai.AddDeveloper(wxT("rkitover"));
     ai.AddDeveloper(wxT("Mystro256"));
     ai.AddDeveloper(wxT("retro-wertz"));
-    ai.AddDeveloper(wxT("denisfa"));
-    ai.AddDeveloper(wxT("orbea"));
     ai.AddDeveloper(wxT("Orig. VBA team"));
     ai.AddDeveloper(wxT("... many contributors who send us patches/PRs"));
     wxAboutBox(ai);
@@ -2959,23 +2456,19 @@ EVT_HANDLER(wxID_ABOUT, "About...")
 
 EVT_HANDLER(Bilinear, "Use bilinear filter with 3d renderer")
 {
-    GetMenuOptionBool("Bilinear", &gopts.bilinear);
-    // Force new panel with new bilinear option.
-    panel->ResetPanel();
+    GetMenuOptionBool("Bilinear", gopts.bilinear);
     update_opts();
 }
 
 EVT_HANDLER(RetainAspect, "Retain aspect ratio when resizing")
 {
-    GetMenuOptionBool("RetainAspect", &gopts.retain_aspect);
-    // Force new panel with new aspect ratio options.
-    panel->ResetPanel();
+    GetMenuOptionBool("RetainAspect", gopts.retain_aspect);
     update_opts();
 }
 
 EVT_HANDLER(Printer, "Enable printer emulation")
 {
-    GetMenuOptionInt("Printer", &winGbPrinterEnabled, 1);
+    GetMenuOptionInt("Printer", winGbPrinterEnabled, 1);
 #if (defined __WIN32__ || defined _WIN32)
 #ifndef NO_LINK
     gbSerialFunction = gbStartLink;
@@ -2991,25 +2484,25 @@ EVT_HANDLER(Printer, "Enable printer emulation")
 
 EVT_HANDLER(PrintGather, "Automatically gather a full page before printing")
 {
-    GetMenuOptionBool("PrintGather", &gopts.print_auto_page);
+    GetMenuOptionBool("PrintGather", gopts.print_auto_page);
     update_opts();
 }
 
 EVT_HANDLER(PrintSnap, "Automatically save printouts as screen captures with -print suffix")
 {
-    GetMenuOptionBool("PrintSnap", &gopts.print_screen_cap);
+    GetMenuOptionBool("PrintSnap", gopts.print_screen_cap);
     update_opts();
 }
 
 EVT_HANDLER(GBASoundInterpolation, "GBA sound interpolation")
 {
-    GetMenuOptionBool("GBASoundInterpolation", &soundInterpolation);
+    GetMenuOptionBool("GBASoundInterpolation", soundInterpolation);
     update_opts();
 }
 
 EVT_HANDLER(GBDeclicking, "GB sound declicking")
 {
-    GetMenuOptionBool("GBDeclicking", &gopts.gb_declick);
+    GetMenuOptionBool("GBDeclicking", gopts.gb_declick);
     // note that setting declick may reset gb sound engine
     gbSoundSetDeclicking(gopts.gb_declick);
     update_opts();
@@ -3017,72 +2510,39 @@ EVT_HANDLER(GBDeclicking, "GB sound declicking")
 
 EVT_HANDLER(GBEnhanceSound, "Enable GB sound effects")
 {
-    GetMenuOptionBool("GBEnhanceSound", &gopts.gb_effects_config_enabled);
+    GetMenuOptionBool("GBEnhanceSound", gopts.gb_effects_config_enabled);
     gb_effects_config.enabled = gopts.gb_effects_config_enabled;
     update_opts();
 }
 
 EVT_HANDLER(GBSurround, "GB surround sound effect (%)")
 {
-    GetMenuOptionBool("GBSurround",&gopts.gb_effects_config_surround);
+    GetMenuOptionBool("GBSurround", gopts.gb_effects_config_surround);
     gb_effects_config.surround = gopts.gb_effects_config_surround;
     update_opts();
 }
 
 EVT_HANDLER(AGBPrinter, "Enable AGB printer")
 {
-    GetMenuOptionInt("AGBPrinter", &agbPrint, 1);
-    update_opts();
-}
-
-EVT_HANDLER_MASK(GBALcdFilter, "Enable LCD filter", CMDEN_GBA)
-{
-    bool menuPress = false;
-    GetMenuOptionBool("GBALcdFilter", &menuPress);
-    toggleBooleanVar(&menuPress, &gbaLcdFilter);
-    SetMenuOption("GBALcdFilter", gbaLcdFilter ? 1 : 0);
-    utilUpdateSystemColorMaps(gbaLcdFilter);
-    update_opts();
-}
-
-EVT_HANDLER_MASK(GBLcdFilter, "Enable LCD filter", CMDEN_GB)
-{
-    bool menuPress = false;
-    GetMenuOptionBool("GBLcdFilter", &menuPress);
-    toggleBooleanVar(&menuPress, &gbLcdFilter);
-    SetMenuOption("GBLcdFilter", gbLcdFilter ? 1 : 0);
-    utilUpdateSystemColorMaps(gbLcdFilter);
-    update_opts();
-}
-
-EVT_HANDLER(GBColorOption, "Enable GB color option")
-{
-    bool menuPress = false;
-    bool intVar = gbColorOption ? true : false;
-    GetMenuOptionBool("GBColorOption", &menuPress);
-    toggleBooleanVar(&menuPress, &intVar);
-    SetMenuOption("GBColorOption", intVar ? 1 : 0);
-    gbColorOption = intVar ? 1 : 0;
+    GetMenuOptionInt("AGBPrinter", agbPrint, 1);
     update_opts();
 }
 
 EVT_HANDLER(ApplyPatches, "Apply IPS/UPS/IPF patches if found")
 {
-    GetMenuOptionInt("ApplyPatches", &autoPatch, 1);
+    GetMenuOptionInt("ApplyPatches", autoPatch, 1);
     update_opts();
 }
 
 EVT_HANDLER(MMX, "Enable MMX")
 {
-#ifdef MMX
-    GetMenuOptionInt("MMX", &enableMMX, 1);
+    GetMenuOptionInt("MMX", disableMMX, 1);
     update_opts();
-#endif
 }
 
 EVT_HANDLER(KeepOnTop, "Keep window on top")
 {
-    GetMenuOptionBool("KeepOnTop", &gopts.keep_on_top);
+    GetMenuOptionBool("KeepOnTop", gopts.keep_on_top);
     MainFrame* mf = wxGetApp().frame;
 
     if (gopts.keep_on_top)
@@ -3095,7 +2555,7 @@ EVT_HANDLER(KeepOnTop, "Keep window on top")
 
 EVT_HANDLER(StatusBar, "Enable status bar")
 {
-    GetMenuOptionInt("StatusBar", &gopts.statusbar, 1);
+    GetMenuOptionInt("StatusBar", gopts.statusbar, 1);
     update_opts();
     MainFrame* mf = wxGetApp().frame;
 
@@ -3105,84 +2565,73 @@ EVT_HANDLER(StatusBar, "Enable status bar")
         mf->GetStatusBar()->Hide();
 
     mf->SendSizeEvent();
-    panel->AdjustSize(false);
-    mf->SendSizeEvent();
+    panel->AdjustSize(true);
 }
 
 EVT_HANDLER(NoStatusMsg, "Disable on-screen status messages")
 {
-    GetMenuOptionInt("NoStatusMsg", &disableStatusMessages, 1);
+    GetMenuOptionInt("NoStatusMsg", disableStatusMessages, 1);
     update_opts();
 }
 
 EVT_HANDLER(FrameSkipAuto, "Auto Skip frames.")
 {
-    GetMenuOptionInt("FrameSkipAuto", &autoFrameSkip, 1);
+    GetMenuOptionInt("FrameSkipAuto", autoFrameSkip, 1);
     update_opts();
 }
 
 EVT_HANDLER(Fullscreen, "Enter fullscreen mode at startup")
 {
-    GetMenuOptionConfig("Fullscreen", config::OptionID::kGeomFullScreen);
+    GetMenuOptionInt("Fullscreen", fullScreen, 1);
+    update_opts();
 }
 
 EVT_HANDLER(PauseWhenInactive, "Pause game when main window loses focus")
 {
-    GetMenuOptionInt("PauseWhenInactive", &pauseWhenInactive, 1);
+    GetMenuOptionInt("PauseWhenInactive", pauseWhenInactive, 1);
     update_opts();
 }
 
 EVT_HANDLER(RTC, "Enable RTC (vba-over.ini override is rtcEnabled")
 {
-    GetMenuOptionInt("RTC", &rtcEnabled, 1);
+    GetMenuOptionInt("RTC", rtcEnabled, 1);
     update_opts();
 }
 
 EVT_HANDLER(Transparent, "Draw on-screen messages transparently")
 {
-    GetMenuOptionInt("Transparent", &showSpeedTransparent, 1);
+    GetMenuOptionInt("Transparent", showSpeedTransparent, 1);
     update_opts();
 }
 
 EVT_HANDLER(SkipIntro, "Skip BIOS initialization")
 {
-    GetMenuOptionInt("SkipIntro", &skipBios, 1);
+    GetMenuOptionInt("SkipIntro", skipBios, 1);
     update_opts();
 }
 
 EVT_HANDLER(BootRomEn, "Use the specified BIOS file for GBA")
 {
-    GetMenuOptionInt("BootRomEn", &useBiosFileGBA, 1);
+    GetMenuOptionInt("BootRomEn", useBiosFileGBA, 1);
     update_opts();
 }
 
 EVT_HANDLER(BootRomGB, "Use the specified BIOS file for GB")
 {
-    int val = 0;
-    GetMenuOptionInt("BootRomGB", &val, 1);
-
-    if (val == 1 && colorizerHack == 1) {
-        wxLogError(_("Cannot use GB BIOS when Colorizer Hack is enabled."));
-        val = 0;
-        SetMenuOption("BootRomGB", 0);
-    }
-
-    useBiosFileGB = val;
-
+    GetMenuOptionInt("BootRomGB", useBiosFileGB, 1);
     update_opts();
 }
 
 EVT_HANDLER(BootRomGBC, "Use the specified BIOS file for GBC")
 {
-    GetMenuOptionInt("BootRomGBC", &useBiosFileGBC, 1);
+    GetMenuOptionInt("BootRomGBC", useBiosFileGBC, 1);
     update_opts();
 }
 
 EVT_HANDLER(VSync, "Wait for vertical sync")
 {
-    GetMenuOptionInt("VSync", &vsync, 1);
+    GetMenuOptionInt("VSync", vsync, 1);
     update_opts();
-    panel->ResetPanel();
 }
 
 void MainFrame::EnableNetworkMenu()
@@ -3209,9 +2658,6 @@ void SetLinkTypeMenu(const char* type, int value)
     mf->SetMenuOption(type, 1);
     gopts.gba_link_type = value;
     update_opts();
-#ifndef NO_LINK
-    CloseLink();
-#endif
     mf->EnableNetworkMenu();
 }
 
@@ -3266,19 +2712,19 @@ EVT_HANDLER(LinkType4Gameboy, "Link Gameboy")
 
 EVT_HANDLER(LinkAuto, "Enable link at boot")
 {
-    GetMenuOptionBool("LinkAuto", &gopts.link_auto);
+    GetMenuOptionBool("LinkAuto", gopts.link_auto);
     update_opts();
 }
 
 EVT_HANDLER(SpeedOn, "Enable faster network protocol by default")
 {
-    GetMenuOptionInt("SpeedOn", &linkHacks, 1);
+    GetMenuOptionInt("SpeedOn", linkHacks, 1);
     update_opts();
 }
 
 EVT_HANDLER(LinkProto, "Local host IPC")
 {
-    GetMenuOptionInt("LinkProto", &gopts.link_proto, 1);
+    GetMenuOptionInt("LinkProto", gopts.link_proto, 1);
     update_opts();
     enable_menus();
     EnableNetworkMenu();

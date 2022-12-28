@@ -20,7 +20,7 @@ static uint8_t *frm3 = NULL;
 
 extern uint32_t qRGB_COLOR_MASK[2];
 
-void InterframeFilterInit()
+static void Init()
 {
   frm1 = (uint8_t *)calloc(322*242,4);
   // 1 frame ago
@@ -163,9 +163,8 @@ static void SmartIB_MMX(uint8_t *srcPtr, uint32_t srcPitch, int width, int start
 
 void SmartIB(uint8_t *srcPtr, uint32_t srcPitch, int width, int starty, int height)
 {
-  (void)width; // unused param
   if(frm1 == NULL) {
-    InterframeFilterInit();
+    Init();
   }
 #ifdef MMX
   if(cpu_mmx) {
@@ -330,9 +329,8 @@ static void SmartIB32_MMX(uint8_t *srcPtr, uint32_t srcPitch, int width, int sta
 
 void SmartIB32(uint8_t *srcPtr, uint32_t srcPitch, int width, int starty, int height)
 {
-  (void)width; // unused param
   if(frm1 == NULL) {
-    InterframeFilterInit();
+    Init();
   }
 #ifdef MMX
   if(cpu_mmx) {
@@ -447,9 +445,8 @@ static void MotionBlurIB_MMX(uint8_t *srcPtr, uint32_t srcPitch, int width, int 
 
 void MotionBlurIB(uint8_t *srcPtr, uint32_t srcPitch, int width, int starty, int height)
 {
-  (void)width; // unused param
   if(frm1 == NULL) {
-    InterframeFilterInit();
+    Init();
   }
 
 #ifdef MMX
@@ -553,9 +550,8 @@ static void MotionBlurIB32_MMX(uint8_t *srcPtr, uint32_t srcPitch, int width, in
 
 void MotionBlurIB32(uint8_t *srcPtr, uint32_t srcPitch, int width, int starty, int height)
 {
-  (void)width; // unused param
   if(frm1 == NULL) {
-    InterframeFilterInit();
+    Init();
   }
 
 #ifdef MMX
@@ -573,7 +569,7 @@ void MotionBlurIB32(uint8_t *srcPtr, uint32_t srcPitch, int width, int starty, i
   int sPitch = srcPitch >> 2;
   int pos = 0;
 
-  for (int j = 0; j < height; j++)
+  for (int j = 0; j < height;  j++)
     for (int i = 0; i < sPitch; i++) {
       uint32_t color = src0[pos];
       src0[pos] = (((color & colorMask) >> 1) +

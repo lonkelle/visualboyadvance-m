@@ -1086,11 +1086,10 @@ int cheatsCheckKeys(uint32_t keys, uint32_t extended)
                 break;
             case GSA_32_BIT_WRITE_IOREGS:
                 if (cheatsList[i].address <= 0x3FF) {
-                    uint32_t cheat_addr = cheatsList[i].address & 0x3FC;
-                    if ((cheat_addr != 6) && (cheat_addr != 0x130))
-                        ioMem[cheat_addr] = (cheatsList[i].value & 0xFFFF);
-                    if (((cheat_addr + 2) != 0x6) && (cheat_addr + 2) != 0x130)
-                        ioMem[cheat_addr + 2] = ((cheatsList[i].value >> 16) & 0xFFFF);
+                    if (((cheatsList[i].address & 0x3FC) != 0x6) && ((cheatsList[i].address & 0x3FC) != 0x130))
+                        ioMem[cheatsList[i].address & 0x3FC] = (cheatsList[i].value & 0xFFFF);
+                    if ((((cheatsList[i].address & 0x3FC) + 2) != 0x6) && ((cheatsList[i].address & 0x3FC) + 2) != 0x130)
+                        ioMem[(cheatsList[i].address & 0x3FC) + 2] = ((cheatsList[i].value >> 16) & 0xFFFF);
                 }
                 break;
             case GSA_8_BIT_IF_TRUE3:
@@ -1353,7 +1352,6 @@ void cheatsDelete(int number, bool restore)
                 } else {
                     CPUWriteMemory(cheatsList[x].address, cheatsList[x].oldValue);
                 }
-		/* fallthrough */
             case GSA_16_BIT_ROM_PATCH:
                 if (cheatsList[x].status & 1) {
                     cheatsList[x].status &= ~1;
@@ -2037,7 +2035,7 @@ void cheatsAddGSACode(const char* code, const char* desc, bool v3)
 
 bool cheatsImportGSACodeFile(const char* name, int game, bool v3)
 {
-    FILE* f = utilOpenFile(name, "rb");
+    FILE* f = fopen(name, "rb");
     if (!f)
         return false;
 
@@ -2049,7 +2047,7 @@ bool cheatsImportGSACodeFile(const char* name, int game, bool v3)
         return false;
     }
 
-    uint32_t len = 0;
+    int len = 0;
     bool found = false;
     int g = 0;
     while (games > 0) {
@@ -2057,15 +2055,15 @@ bool cheatsImportGSACodeFile(const char* name, int game, bool v3)
             found = true;
             break;
         }
-        FREAD_UNCHECKED(&len, 1, 4, f);
+        fread(&len, 1, 4, f);
         fseek(f, len, SEEK_CUR);
         int codes = 0;
-        FREAD_UNCHECKED(&codes, 1, 4, f);
+        fread(&codes, 1, 4, f);
         while (codes > 0) {
-            FREAD_UNCHECKED(&len, 1, 4, f);
+            fread(&len, 1, 4, f);
             fseek(f, len, SEEK_CUR);
             fseek(f, 8, SEEK_CUR);
-            FREAD_UNCHECKED(&len, 1, 4, f);
+            fread(&len, 1, 4, f);
             fseek(f, len * 12, SEEK_CUR);
             codes--;
         }
@@ -2075,26 +2073,26 @@ bool cheatsImportGSACodeFile(const char* name, int game, bool v3)
     if (found) {
         char desc[256];
         char code[17];
-        FREAD_UNCHECKED(&len, 1, 4, f);
+        fread(&len, 1, 4, f);
         fseek(f, len, SEEK_CUR);
         int codes = 0;
-        FREAD_UNCHECKED(&codes, 1, 4, f);
+        fread(&codes, 1, 4, f);
         while (codes > 0) {
-            FREAD_UNCHECKED(&len, 1, 4, f);
+            fread(&len, 1, 4, f);
 	    if (len > 255)
 		    goto evil_gsa_code_file;	//XXX: this functione needs a rewrite in general, so for the short this is better than nothing
-            FREAD_UNCHECKED(desc, 1, len, f);
+            fread(desc, 1, len, f);
             desc[len] = 0;
             desc[31] = 0;
-            FREAD_UNCHECKED(&len, 1, 4, f);
+            fread(&len, 1, 4, f);
             fseek(f, len, SEEK_CUR);
             fseek(f, 4, SEEK_CUR);
-            FREAD_UNCHECKED(&len, 1, 4, f);
+            fread(&len, 1, 4, f);
             while (len) {
                 fseek(f, 4, SEEK_CUR);
-                FREAD_UNCHECKED(code, 1, 8, f);
+                fread(code, 1, 8, f);
                 fseek(f, 4, SEEK_CUR);
-                FREAD_UNCHECKED(&code[8], 1, 8, f);
+                fread(&code[8], 1, 8, f);
                 code[16] = 0;
                 cheatsAddGSACode(code, desc, v3);
                 len -= 2;
@@ -2589,7 +2587,7 @@ void cheatsReadGame(gzFile file, int version)
     cheatsNumber = 0;
 
     cheatsNumber = utilReadInt(file);
-
+    
     if (cheatsNumber > MAX_CHEATS)
         cheatsNumber = MAX_CHEATS;
 
@@ -2676,7 +2674,7 @@ void cheatsSaveCheatList(const char* file)
 {
     if (cheatsNumber == 0)
         return;
-    FILE* f = utilOpenFile(file, "wb");
+    FILE* f = fopen(file, "wb");
     if (f == NULL)
         return;
     int version = 1;
@@ -2693,7 +2691,7 @@ bool cheatsLoadCheatList(const char* file)
 
     int count = 0;
 
-    FILE* f = utilOpenFile(file, "rb");
+    FILE* f = fopen(file, "rb");
 
     if (f == NULL)
         return false;
@@ -2736,16 +2734,16 @@ bool cheatsLoadCheatList(const char* file)
         }
     } else if (type == 0) {
         for (int i = 0; i < count; i++) {
-            FREAD_UNCHECKED(&cheatsList[i].code, 1, sizeof(int), f);
-            FREAD_UNCHECKED(&cheatsList[i].size, 1, sizeof(int), f);
-            FREAD_UNCHECKED(&cheatsList[i].status, 1, sizeof(int), f);
-            FREAD_UNCHECKED(&cheatsList[i].enabled, 1, sizeof(int), f);
+            fread(&cheatsList[i].code, 1, sizeof(int), f);
+            fread(&cheatsList[i].size, 1, sizeof(int), f);
+            fread(&cheatsList[i].status, 1, sizeof(int), f);
+            fread(&cheatsList[i].enabled, 1, sizeof(int), f);
             cheatsList[i].enabled = cheatsList[i].enabled ? true : false;
-            FREAD_UNCHECKED(&cheatsList[i].address, 1, sizeof(uint32_t), f);
+            fread(&cheatsList[i].address, 1, sizeof(uint32_t), f);
             cheatsList[i].rawaddress = cheatsList[i].address;
-            FREAD_UNCHECKED(&cheatsList[i].value, 1, sizeof(uint32_t), f);
-            FREAD_UNCHECKED(&cheatsList[i].oldValue, 1, sizeof(uint32_t), f);
-            FREAD_UNCHECKED(&cheatsList[i].codestring, 1, 20 * sizeof(char), f);
+            fread(&cheatsList[i].value, 1, sizeof(uint32_t), f);
+            fread(&cheatsList[i].oldValue, 1, sizeof(uint32_t), f);
+            fread(&cheatsList[i].codestring, 1, 20 * sizeof(char), f);
             if (fread(&cheatsList[i].desc, 1, 32 * sizeof(char), f) != 32 * sizeof(char)) {
                 fclose(f);
                 return false;
@@ -2825,9 +2823,9 @@ static uint8_t cheatsGetType(uint32_t address)
 }
 #endif
 
-#ifdef BKPT_SUPPORT
 void cheatsWriteMemory(uint32_t address, uint32_t value)
 {
+#ifdef BKPT_SUPPORT
     if (cheatsNumber == 0) {
         int type = cheatsGetType(address);
         uint32_t oldValue = debuggerReadMemory(address);
@@ -2837,10 +2835,12 @@ void cheatsWriteMemory(uint32_t address, uint32_t value)
         }
         debuggerWriteMemory(address, value);
     }
+#endif
 }
 
 void cheatsWriteHalfWord(uint32_t address, uint16_t value)
 {
+#ifdef BKPT_SUPPORT
     if (cheatsNumber == 0) {
         int type = cheatsGetType(address);
         uint16_t oldValue = debuggerReadHalfWord(address);
@@ -2850,10 +2850,12 @@ void cheatsWriteHalfWord(uint32_t address, uint16_t value)
         }
         debuggerWriteHalfWord(address, value);
     }
+#endif
 }
 
 void cheatsWriteByte(uint32_t address, uint8_t value)
 {
+#ifdef BKPT_SUPPORT
     if (cheatsNumber == 0) {
         int type = cheatsGetType(address);
         uint8_t oldValue = debuggerReadByte(address);
@@ -2863,5 +2865,5 @@ void cheatsWriteByte(uint32_t address, uint8_t value)
         }
         debuggerWriteByte(address, value);
     }
-}
 #endif
+}

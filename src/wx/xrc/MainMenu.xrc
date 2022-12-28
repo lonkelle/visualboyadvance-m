@@ -3,9 +3,7 @@
   <object class="wxMenuBar" name="MainMenu">
     <object class="wxMenu">
       <label>_File</label>
-      <object class="wxMenuItem" name="wxID_OPEN">
-        <label>Open...</label>
-      </object>
+      <object class="wxMenuItem" name="wxID_OPEN"/>
       <object class="wxMenuItem" name="OpenGB">
         <label>Open _GB...</label>
       </object>
@@ -28,16 +26,10 @@
       <object class="separator"/>
       <object class="wxMenu">
         <label>_e-Reader</label>
-        <object class="wxMenuItem" name="ResetLoadingDotCodeFile">
-          <label>_Reset Loading Dot Code</label>
-        </object>
-        <object class="wxMenuItem" name="SetLoadingDotCodeFile">
+        <object class="wxMenuItem" name="LoadDotCodeFile">
           <label>_Load Dot Code...</label>
         </object>
-        <object class="wxMenuItem" name="ResetSavingDotCodeFile">
-          <label>_Reset Saving Dot Code</label>
-        </object>
-        <object class="wxMenuItem" name="SetSavingDotCodeFile">
+        <object class="wxMenuItem" name="SaveDotCodeFile">
           <label>_Save Dot Code...</label>
         </object>
       </object>
@@ -45,9 +37,7 @@
       <object class="wxMenu">
         <object class="wxMenuItem" name="LoadGameRecent">
           <label>Most _recent</label>
-        </object>
-        <object class="wxMenuItem" name="LoadGameSlot">
-          <label>Load current state slot</label>
+          <accel>Ctrl+L</accel>
         </object>
         <object class="wxMenuItem" name="LoadGameAutoLoad">
           <label>_Auto load most recent</label>
@@ -56,33 +46,43 @@
         <object class="separator"/>
         <object class="wxMenuItem" name="LoadGame01">
           <label>_1</label>
+          <accel>F1</accel>
         </object>
         <object class="wxMenuItem" name="LoadGame02">
           <label>_2</label>
+          <accel>F2</accel>
         </object>
         <object class="wxMenuItem" name="LoadGame03">
           <label>_3</label>
+          <accel>F3</accel>
         </object>
         <object class="wxMenuItem" name="LoadGame04">
           <label>_4</label>
+          <accel>F4</accel>
         </object>
         <object class="wxMenuItem" name="LoadGame05">
           <label>_5</label>
+          <accel>F5</accel>
         </object>
         <object class="wxMenuItem" name="LoadGame06">
           <label>_6</label>
+          <accel>F6</accel>
         </object>
         <object class="wxMenuItem" name="LoadGame07">
           <label>_7</label>
+          <accel>F7</accel>
         </object>
         <object class="wxMenuItem" name="LoadGame08">
           <label>_8</label>
+          <accel>F8</accel>
         </object>
         <object class="wxMenuItem" name="LoadGame09">
           <label>_9</label>
+          <accel>F9</accel>
         </object>
         <object class="wxMenuItem" name="LoadGame10">
           <label>1_0</label>
+          <accel>F10</accel>
         </object>
         <object class="separator"/>
         <object class="wxMenuItem" name="Load">
@@ -102,55 +102,54 @@
       <object class="wxMenu">
         <object class="wxMenuItem" name="SaveGameOldest">
           <label>_Oldest slot</label>
-        </object>
-        <object class="wxMenuItem" name="SaveGameSlot">
-          <label>Save current state slot</label>
-        </object>
-        <object class="wxMenuItem" name="IncrGameSlotSave">
-          <label>Increase state slot number and save</label>
+          <accel>Ctrl+S</accel>
         </object>
         <object class="separator"/>
         <object class="wxMenuItem" name="SaveGame01">
           <label>_1</label>
+          <accel>Shift+F1</accel>
         </object>
         <object class="wxMenuItem" name="SaveGame02">
           <label>_2</label>
+          <accel>Shift+F2</accel>
         </object>
         <object class="wxMenuItem" name="SaveGame03">
           <label>_3</label>
+          <accel>Shift+F3</accel>
         </object>
         <object class="wxMenuItem" name="SaveGame04">
           <label>_4</label>
+          <accel>Shift+F4</accel>
         </object>
         <object class="wxMenuItem" name="SaveGame05">
           <label>_5</label>
+          <accel>Shift+F5</accel>
         </object>
         <object class="wxMenuItem" name="SaveGame06">
           <label>_6</label>
+          <accel>Shift+F6</accel>
         </object>
         <object class="wxMenuItem" name="SaveGame07">
           <label>_7</label>
+          <accel>Shift+F7</accel>
         </object>
         <object class="wxMenuItem" name="SaveGame08">
           <label>_8</label>
+          <accel>Shift+F8</accel>
         </object>
         <object class="wxMenuItem" name="SaveGame09">
           <label>_9</label>
+          <accel>Shift+F9</accel>
         </object>
         <object class="wxMenuItem" name="SaveGame10">
           <label>1_0</label>
+          <accel>Shift+F10</accel>
         </object>
         <object class="separator"/>
         <object class="wxMenuItem" name="Save">
           <label>To _File ...</label>
         </object>
         <label>_Save state</label>
-      </object>
-      <object class="wxMenuItem" name="IncrGameSlot">
-        <label>Increase state slot number</label>
-      </object>
-      <object class="wxMenuItem" name="DecrGameSlot">
-        <label>Decrease state slot number</label>
       </object>
       <object class="separator"/>
       <object class="wxMenu">
@@ -210,21 +209,22 @@
       </object>
       <object class="separator"/>
       <object class="wxMenuItem" name="wxID_CLOSE"/>
-      <object class="wxMenuItem" name="wxID_EXIT">
-        <label>_Quit</label>
-      </object>
+      <object class="wxMenuItem" name="wxID_EXIT"/>
     </object>
     <object class="wxMenu">
       <label>_Emulation</label>
       <object class="wxMenuItem" name="Pause">
         <label>_Pause</label>
+        <accel>Ctrl+P</accel>
         <checkable>1</checkable>
       </object>
       <object class="wxMenuItem" name="NextFrame">
         <label>_Next frame</label>
+        <accel>Ctrl+N</accel>
       </object>
       <object class="wxMenuItem" name="Rewind">
         <label>Re_wind</label>
+        <accel>Ctrl+B</accel>
       </object>
       <object class="separator"/>
       <object class="wxMenuItem" name="ToggleFullscreen">
@@ -262,11 +262,12 @@
       <object class="separator"/>
       <object class="wxMenuItem" name="Reset">
         <label>_Reset</label>
+        <accel>Ctrl+R</accel>
       </object>
     </object>
     <object class="wxMenu">
       <label>_Options</label>
-      <object class="wxMenu" name="LinkMenu">
+      <object class="wxMenu">
         <label>_Link</label>
         <object class="wxMenuItem" name="LanLink">
           <label>Start _Network Link ...</label>
@@ -320,39 +321,8 @@
           <label>_Start in full screen</label>
           <checkable>1</checkable>
         </object>
-        <object class="wxMenu">
-          <label>_Scaled resize</label>
-          <object class="wxMenuItem" name="SetSize1x">
-            <label>_1x</label>
-          </object>
-          <object class="wxMenuItem" name="SetSize2x">
-            <label>_2x</label>
-          </object>
-          <object class="wxMenuItem" name="SetSize3x">
-            <label>_3x</label>
-          </object>
-          <object class="wxMenuItem" name="SetSize4x">
-            <label>_4x</label>
-          </object>
-          <object class="wxMenuItem" name="SetSize5x">
-            <label>_5x</label>
-          </object>
-          <object class="wxMenuItem" name="SetSize6x">
-            <label>_6x</label>
-          </object>
-        </object>
-        <object class="wxMenuItem" name="ChangeFilter">
-          <label>Change pixel filter</label>
-        </object>
-        <object class="wxMenuItem" name="ChangeIFB">
-          <label>Change interframe blending</label>
-        </object>
         <object class="wxMenuItem" name="RetainAspect">
           <label>_Retain aspect ratio</label>
-          <checkable>1</checkable>
-        </object>
-        <object class="wxMenuItem" name="MMX">
-          <label>Enable MMX</label>
           <checkable>1</checkable>
         </object>
         <object class="separator"/>
@@ -360,12 +330,10 @@
           <label>_Bilinear filter</label>
           <checkable>1</checkable>
         </object>
-<!--
         <object class="wxMenuItem" name="Multithread">
           <label>_Multithread filter</label>
           <checkable>1</checkable>
         </object>
--->
         <object class="separator"/>
         <object class="wxMenuItem" name="KeepOnTop">
           <label>_Keep window on top</label>
@@ -390,24 +358,12 @@
         <object class="wxMenuItem" name="SoundConfigure">
           <label>_Configure ...</label>
         </object>
-        <object class="wxMenuItem" name="IncreaseVolume">
-          <label>_Increase volume</label>
-          <enabled>0</enabled>
-        </object>
-        <object class="wxMenuItem" name="DecreaseVolume">
-          <label>_Decrease volume</label>
-          <enabled>0</enabled>
-        </object>
-        <object class="wxMenuItem" name="ToggleSound">
-          <label>_Toggle sound</label>
-          <checkable>0</checkable>
-        </object>
         <object class="separator"/>
         <object class="wxMenuItem" name="GBASoundInterpolation">
           <label>_GBA sound interpolation</label>
           <checkable>1</checkable>
         </object>
-        <object class="separator"/>
+        <object class="separator"/>        
         <object class="wxMenuItem" name="GBEnhanceSound">
           <label>_GB sound enhancement</label>
           <checkable>1</checkable>
@@ -426,74 +382,27 @@
         <object class="wxMenuItem" name="JoypadConfigure">
           <label>_Configure ...</label>
         </object>
-        <object class="wxMenuItem" name="AllowKeyboardBackgroundInput">
-          <label>Allow _keyboard background input</label>
-          <checkable>1</checkable>
-        </object>
-        <object class="wxMenuItem" name="AllowJoystickBackgroundInput">
-          <label>Allow _joystick background input</label>
-          <checkable>1</checkable>
-        </object>
-        <object class="separator"/>
+        <object class="separator"/>        
         <object class="wxMenu">
           <label>_Autofire</label>
           <object class="wxMenuItem" name="JoypadAutofireA">
             <label>_A</label>
+            <accel>Alt+1</accel>
             <checkable>1</checkable>
           </object>
           <object class="wxMenuItem" name="JoypadAutofireB">
             <label>_B</label>
+            <accel>Alt+2</accel>
             <checkable>1</checkable>
           </object>
           <object class="wxMenuItem" name="JoypadAutofireL">
             <label>_L</label>
+            <accel>Alt+3</accel>
             <checkable>1</checkable>
           </object>
           <object class="wxMenuItem" name="JoypadAutofireR">
             <label>_R</label>
-            <checkable>1</checkable>
-          </object>
-        </object>
-        <object class="wxMenu">
-          <label>_Autohold</label>
-          <object class="wxMenuItem" name="JoypadAutoholdUp">
-            <label>Up</label>
-            <checkable>1</checkable>
-          </object>
-          <object class="wxMenuItem" name="JoypadAutoholdDown">
-            <label>Down</label>
-            <checkable>1</checkable>
-          </object>
-          <object class="wxMenuItem" name="JoypadAutoholdLeft">
-            <label>Left</label>
-            <checkable>1</checkable>
-          </object>
-          <object class="wxMenuItem" name="JoypadAutoholdRight">
-            <label>Right</label>
-            <checkable>1</checkable>
-          </object>
-          <object class="wxMenuItem" name="JoypadAutoholdA">
-            <label>_A</label>
-            <checkable>1</checkable>
-          </object>
-          <object class="wxMenuItem" name="JoypadAutoholdB">
-            <label>_B</label>
-            <checkable>1</checkable>
-          </object>
-          <object class="wxMenuItem" name="JoypadAutoholdL">
-            <label>_L</label>
-            <checkable>1</checkable>
-          </object>
-          <object class="wxMenuItem" name="JoypadAutoholdR">
-            <label>_R</label>
-            <checkable>1</checkable>
-          </object>
-          <object class="wxMenuItem" name="JoypadAutoholdSelect">
-            <label>Select</label>
-            <checkable>1</checkable>
-          </object>
-          <object class="wxMenuItem" name="JoypadAutoholdStart">
-            <label>Start</label>
+            <accel>Alt+4</accel>
             <checkable>1</checkable>
           </object>
         </object>
@@ -503,7 +412,7 @@
         <object class="wxMenuItem" name="GameBoyAdvanceConfigure">
           <label>Configure ...</label>
         </object>
-        <object class="separator"/>
+        <object class="separator"/>        
         <object class="wxMenuItem" name="RTC">
           <label>_Real-time clock</label>
           <checkable>1</checkable>
@@ -516,10 +425,6 @@
           <label>_Debug print</label>
           <checkable>1</checkable>
         </object>
-        <object class="wxMenuItem" name="GBALcdFilter">
-          <label>_LCD Filter</label>
-          <checkable>1</checkable>
-        </object>
       </object>
       <object class="wxMenu">
         <label>_Game Boy</label>
@@ -527,18 +432,6 @@
           <label>Configure ...</label>
         </object>
         <object class="separator"/>
-        <object class="wxMenuItem" name="GBColorOption">
-          <label>_GB color option</label>
-          <checkable>1</checkable>
-        </object>
-        <object class="wxMenuItem" name="GBLcdFilter">
-          <label>_LCD Filter</label>
-          <checkable>1</checkable>
-        </object>
-        <object class="wxMenuItem" name="ColorizerHack">
-          <label>_GB Colorizer Hack (requires restart)</label>
-          <checkable>1</checkable>
-        </object>        
         <object class="wxMenuItem" name="Printer">
           <label>_GB printer</label>
           <checkable>1</checkable>
@@ -553,7 +446,7 @@
         </object>
         <object class="separator"/>
         <object class="wxMenuItem" name="BootRomGB">
-          <label>_Use GB BIOS file (requires restart)</label>
+          <label>_Use GB BIOS file</label>
           <checkable>1</checkable>
         </object>
         <object class="wxMenuItem" name="BootRomGBC">
@@ -564,17 +457,11 @@
         <object class="wxMenuItem" name="GeneralConfigure">
           <label>_General ...</label>
         </object>
-        <object class="wxMenuItem" name="SpeedupConfigure">
-          <label>_Speedup / Turbo ...</label>
-        </object>
         <object class="wxMenuItem" name="EmulatorDirectories">
           <label>D_irectories ...</label>
         </object>
         <object class="wxMenuItem" name="Customize">
           <label>_Key Shortcuts ...</label>
-        </object>
-        <object class="wxMenuItem" name="UIConfigure">
-          <label>_UI Settings ...</label>
         </object>
     </object>
     <object class="wxMenu">
@@ -583,11 +470,13 @@
         <label>_Cheats</label>
         <object class="wxMenuItem" name="CheatsList">
           <label>List _cheats ...</label>
+          <accel>Ctrl+C</accel>
         </object>
         <object class="wxMenuItem" name="CheatsSearch">
           <label>Find c_heat ...</label>
+          <accel>Ctrl+F</accel>
         </object>
-        <object class="separator"/>
+        <object class="separator"/>        
         <object class="wxMenuItem" name="CheatsAutoSaveLoad">
           <label>A_utomatically save/load cheats</label>
           <checkable>1</checkable>
@@ -598,7 +487,7 @@
         </object>
       </object>
       <object class="separator"/>
-      <object class="wxMenu" name="GDBMenu">
+      <object class="wxMenu">
         <object class="wxMenuItem" name="DebugGDBBreak">
           <label>_Break into GDB</label>
         </object>
@@ -642,47 +531,51 @@
       </object>
       <object class="separator"/>
       <object class="wxMenu">
-        <object class="wxMenuItem" name="VideoLayersReset">
-          <label>Show all video layers</label>
-        </object>
-        <object class="separator"/>
         <object class="wxMenuItem" name="VideoLayersBG0">
           <label>BG _0</label>
+          <accel>Ctrl+1</accel>
           <checkable>1</checkable>
           <checked>1</checked>
         </object>
         <object class="wxMenuItem" name="VideoLayersBG1">
           <label>BG _1</label>
+          <accel>Ctrl+2</accel>
           <checkable>1</checkable>
           <checked>1</checked>
         </object>
         <object class="wxMenuItem" name="VideoLayersBG2">
           <label>BG _2</label>
+          <accel>Ctrl+3</accel>
           <checkable>1</checkable>
           <checked>1</checked>
         </object>
         <object class="wxMenuItem" name="VideoLayersBG3">
           <label>BG _3</label>
+          <accel>Ctrl+4</accel>
           <checkable>1</checkable>
           <checked>1</checked>
         </object>
         <object class="wxMenuItem" name="VideoLayersOBJ">
           <label>_OBJ</label>
+          <accel>Ctrl+5</accel>
           <checkable>1</checkable>
           <checked>1</checked>
         </object>
         <object class="wxMenuItem" name="VideoLayersWIN0">
           <label>_WIN 0</label>
+          <accel>Ctrl+6</accel>
           <checkable>1</checkable>
           <checked>1</checked>
         </object>
         <object class="wxMenuItem" name="VideoLayersWIN1">
           <label>W_IN 1</label>
+          <accel>Ctrl+7</accel>
           <checkable>1</checkable>
           <checked>1</checked>
         </object>
         <object class="wxMenuItem" name="VideoLayersOBJWIN">
           <label>O_BJ WIN</label>
+          <accel>Ctrl+8</accel>
           <checkable>1</checkable>
           <checked>1</checked>
         </object>
@@ -737,17 +630,12 @@
       <object class="wxMenuItem" name="UpdateRDB">
         <label>Update ROM database</label>
       </object>
-      -->
       <object class="wxMenuItem" name="UpdateEmu">
         <label>Check for updates</label>
       </object>
-      <object class="wxMenuItem" name="FactoryReset">
-        <label>_Factory Reset...</label>
-      </object>
+      -->
       <object class="separator"/>
-      <object class="wxMenuItem" name="wxID_ABOUT">
-        <label>_About...</label>
-      </object>
+      <object class="wxMenuItem" name="wxID_ABOUT"/>
     </object>
   </object>
 </resource>

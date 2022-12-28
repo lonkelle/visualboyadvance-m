@@ -1,29 +1,29 @@
 function(host_compile src dst_cmd)
-    if(CMAKE_CROSSCOMPILING)
-        unset(link_flags)
+    unset(link_flags)
 
-        if(CMAKE_HOST_WIN32)
+    if(CMAKE_HOST_WIN32)
+        if(NOT dst MATCHES "\\.[Ee][Xx][Ee]\$")
             set(dst "${dst_cmd}.exe")
-
-            if(CMAKE_COMPILER_IS_GNUCXX)
-                set(link_flags -Wl,--subsystem,console)
-            endif()
-        else()
-            set(dst ${dst_cmd})
         endif()
 
-        # assume cc foo.c -o foo # will work on most hosts
-        add_custom_command(
-            OUTPUT ${dst}
-            COMMAND cc ${src} -o ${dst} ${link_flags}
-            DEPENDS ${src}
-        )
+        if(CMAKE_COMPILER_IS_GNUCXX)
+            set(link_flags -Wl,--subsystem,console)
+        endif()
     else()
-        get_filename_component(dst ${dst_cmd} NAME)
+        set(dst "${dst_cmd}")
+    endif()
 
-        add_executable(${dst} ${src})
+    if(NOT MSVC)
+        # assume cc foo.c -o foo # will work on most hosts
+        set(compile_command cc ${src} -o ${dst} ${link_flags})
+    else()
+        # special case for Visual Studio
+        set(compile_command cl ${src} /link "/out:${dst}")
+    endif()
 
-        # this is necessary because we override main with SDL_main
-        target_compile_definitions(${dst} PRIVATE -Dmain=main)
+    execute_process(COMMAND ${compile_command} OUTPUT_VARIABLE compile_out ERROR_VARIABLE compile_out RESULT_VARIABLE compile_result)
+
+    if(NOT compile_result EQUAL 0)
+        message(FATAL_ERROR "Failed compiling ${src} for the host: ${compile_out}")
     endif()
 endfunction()

@@ -1,12 +1,6 @@
 // utility widgets
-
-#include <cctype>
-#include <string>
-#include <algorithm>
-
 #include "wx/wxmisc.h"
 #include <wx/wx.h>
-#include <wx/spinctrl.h>
 
 wxFarRadio::wxFarRadio()
     : wxCheckBox()
@@ -235,7 +229,6 @@ bool wxFileDirPickerValidator::TransferFromWindow()
 
     if (fp) {
         *vptr = fp->GetPath();
-        if (vlabel) vlabel->SetLabel(*vptr);
         return true;
     }
 
@@ -243,7 +236,6 @@ bool wxFileDirPickerValidator::TransferFromWindow()
 
     if (dp) {
         *vptr = dp->GetPath();
-        if (vlabel) vlabel->SetLabel(*vptr);
         return true;
     }
 
@@ -296,7 +288,7 @@ bool wxColorValidator::TransferFromWindow()
 
 static void enable(wxWindow_v controls, std::vector<int> reverse, bool en)
 {
-    for (size_t i = 0; i < controls.size(); i++)
+    for (int i = 0; i < controls.size(); i++)
         controls[i]->Enable(reverse.size() <= i || !reverse[i] ? en : !en);
 }
 
@@ -384,75 +376,56 @@ static const wxString  val_unsdigits_s[] = {
 const wxArrayString val_unsdigits(sizeof(val_unsdigits_s) / sizeof(val_unsdigits_s[0]),
     val_unsdigits_s);
 
-wxUIntValidator::wxUIntValidator(uint32_t* _val)
-    : uint_val(_val)
+
+wxPositiveDoubleValidator::wxPositiveDoubleValidator(double* _val)
+    : wxGenericValidator(&str_val)
+    , double_val(_val)
 {
-    if (uint_val)
+    if (double_val) {
+        str_val = wxString::Format(wxT("%.1f"), *double_val);
         TransferToWindow();
+    }
 }
 
-bool wxUIntValidator::TransferToWindow()
+bool wxPositiveDoubleValidator::TransferToWindow()
 {
-    if (uint_val) {
-        wxSpinCtrl* spin = wxDynamicCast(GetWindow(), wxSpinCtrl);
-        if (spin) {
-            spin->SetValue(*uint_val);
-            return true;
-        }
+    if (double_val) {
+        str_val = wxString::Format(wxT("%.1f"), *double_val);
+        return wxGenericValidator::TransferToWindow();
+    }
+    return true;
+}
 
-        wxTextCtrl* txt = wxDynamicCast(GetWindow(), wxTextCtrl);
-        if (txt) {
-            txt->SetValue(wxString::Format(wxT("%d"), *uint_val));
-            return true;
+bool wxPositiveDoubleValidator::TransferFromWindow()
+{
+    if (wxGenericValidator::TransferFromWindow()) {
+        if (double_val) {
+            return str_val.ToDouble(double_val);
         }
     }
-
     return false;
 }
 
-bool wxUIntValidator::TransferFromWindow()
+bool wxPositiveDoubleValidator::Validate(wxWindow* parent)
 {
-    if (uint_val) {
-        wxSpinCtrl* spin = wxDynamicCast(GetWindow(), wxSpinCtrl);
-        if (spin) {
-            *uint_val = spin->GetValue();
-            return true;
+    if (wxGenericValidator::Validate(parent)) {
+        wxTextCtrl* ctrl = wxDynamicCast(GetWindow(), wxTextCtrl);
+
+        if (ctrl) {
+            wxString cur_txt = ctrl->GetValue();
+            double val;
+            if (cur_txt.ToDouble(&val)) {
+                return val >= 0;
+            }
+            return false;
         }
 
-        wxTextCtrl* txt = wxDynamicCast(GetWindow(), wxTextCtrl);
-        if (txt) {
-            *uint_val = wxAtoi(txt->GetValue());
-            return true;
-        }
+        return true;
     }
-
     return false;
 }
 
-bool wxUIntValidator::Validate(wxWindow* parent)
+wxObject* wxPositiveDoubleValidator::Clone() const
 {
-    (void)parent; // unused params
-
-    wxSpinCtrl* spin = wxDynamicCast(GetWindow(), wxSpinCtrl);
-    if (spin) {
-        if (spin->GetValue() >= 0) {
-            return true;
-        }
-        return false;
-    }
-
-    wxTextCtrl* txt = wxDynamicCast(GetWindow(), wxTextCtrl);
-    if (txt) {
-        std::string val = std::string(txt->GetValue().mb_str());
-
-        return !val.empty()
-            && std::find_if(val.begin(), val.end(), [](unsigned char c) { return !std::isdigit(c); }) == val.end();
-    }
-
-    return false;
-}
-
-wxObject* wxUIntValidator::Clone() const
-{
-    return new wxUIntValidator(uint_val);
+    return new wxPositiveDoubleValidator(double_val);
 }

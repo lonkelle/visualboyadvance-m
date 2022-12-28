@@ -59,7 +59,6 @@ char GBASockClient::ReceiveCmd(char* data_in, bool block)
 
 void GBASockClient::ReceiveClock(bool block)
 {
-    (void)block; // unused param
     if (IsDisconnected())
         return;
 

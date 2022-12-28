@@ -1,40 +1,30 @@
+#include <algorithm>
+#include <wx/string.h>
+#include <string>
+#include <vector>
 #include "strutils.h"
 
-#include <wx/tokenzr.h>
-
-namespace strutils {
-
 // From: https://stackoverflow.com/a/7408245/262458
-//
-// Modified to ignore empty tokens or return sep for them.
-wxArrayString split(const wxString& text, const wxString& sep, bool empty_token_is_sep) {
-    wxArrayString tokens;
-    size_t start = 0, end = 0;
+std::vector<wxString> str_split(const wxString& text, const wxString& sep) {
+    std::vector<wxString> tokens;
+    std::size_t start = 0, end = 0;
 
     while ((end = text.find(sep, start)) != std::string::npos) {
-        wxString token = text.substr(start, end - start);
-
-        if (token.length())
-	    tokens.Add(token);
-        else if (empty_token_is_sep)
-            tokens.Add(sep);
-
-	start = end + sep.length();
+	tokens.push_back(text.substr(start, end - start));
+	start = end + 1;
     }
 
-    // Last token.
-    wxString token = text.substr(start);
-    if (token.length())
-        tokens.Add(token);
-    else if (empty_token_is_sep)
-        tokens.Add(sep);
+    tokens.push_back(text.substr(start));
 
     return tokens;
 }
 
-wxArrayString split_with_sep(const wxString& text, const wxString& sep)
-{
-    return split(text, sep, true);
-}
+// From: https://stackoverflow.com/a/15099743/262458
+std::size_t vec_find(std::vector<wxString>& opts, const wxString& val) {
+    auto it = std::find(opts.begin(), opts.end(), val);
 
-} // namespace strutils
+    if (it == opts.end())
+        return wxNOT_FOUND;
+
+    return std::distance(opts.begin(), it);
+}

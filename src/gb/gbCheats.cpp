@@ -99,13 +99,13 @@ void gbCheatsReadGameSkip(gzFile gzFile, int version)
         }
     }
 }
-#endif /* __LIBRETRO__ */
+#endif
 
 void gbCheatsSaveCheatList(const char* file)
 {
     if (gbCheatNumber == 0)
         return;
-    FILE* f = utilOpenFile(file, "wb");
+    FILE* f = fopen(file, "wb");
     if (f == NULL)
         return;
     int version = 1;
@@ -125,7 +125,7 @@ bool gbCheatsLoadCheatList(const char* file)
 
     int count = 0;
 
-    FILE* f = utilOpenFile(file, "rb");
+    FILE* f = fopen(file, "rb");
 
     if (f == NULL)
         return false;
@@ -396,7 +396,7 @@ void gbCheatDisable(int i)
 
 bool gbCheatReadGSCodeFile(const char* fileName)
 {
-    FILE* file = utilOpenFile(fileName, "rb");
+    FILE* file = fopen(fileName, "rb");
 
     if (!file) {
         systemMessage(MSG_CANNOT_OPEN_FILE, N_("Cannot open file %s"), fileName);
@@ -416,10 +416,10 @@ bool gbCheatReadGSCodeFile(const char* fileName)
     char code[9];
     int i;
     for (i = 0; i < count; i++) {
-        FREAD_UNCHECKED(&dummy, 1, 2, file);
-        FREAD_UNCHECKED(desc, 1, 12, file);
+        fread(&dummy, 1, 2, file);
+        fread(desc, 1, 12, file);
         desc[12] = 0;
-        FREAD_UNCHECKED(code, 1, 8, file);
+        fread(code, 1, 8, file);
         code[8] = 0;
         gbAddGsCheat(code, desc);
     }

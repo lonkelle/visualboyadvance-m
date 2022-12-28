@@ -1,11 +1,10 @@
 // This file was written by denopqrihg
 // with major changes by tjm
 #include <stdio.h>
-#include <cstring>
-#include <string>
+#include <string.h>
 
-// malloc.h does not seem to exist on Mac OS 10.7 and is an error on FreeBSD
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
+// malloc.h does not seem to exist on Mac OS 10.7
+#ifdef __APPLE__
 #include <stdlib.h>
 #else
 #include <malloc.h>
@@ -50,6 +49,45 @@ enum siocnt_lo_32bit {
     SIO_IRQ_ENABLE = 0x4000
 };
 
+#ifdef __clang__
+
+// don't define these min/max functions, they don't compile
+
+#else
+
+// The usual min/max functions for built-in types.
+//
+// template<typename T> T min( T x, T y ) { return x < y ? x : y; }
+// template<typename T> T max( T x, T y ) { return x > y ? x : y; }
+#define BLARGG_DEF_MIN_MAX(type)                  \
+    static inline type blargg_min(type x, type y) \
+    {                                             \
+        if (y < x)                                \
+            x = y;                                \
+        return x;                                 \
+    }                                             \
+    static inline type blargg_max(type x, type y) \
+    {                                             \
+        if (x < y)                                \
+            x = y;                                \
+        return x;                                 \
+    }
+
+BLARGG_DEF_MIN_MAX(int)
+BLARGG_DEF_MIN_MAX(unsigned)
+BLARGG_DEF_MIN_MAX(long)
+BLARGG_DEF_MIN_MAX(unsigned long)
+BLARGG_DEF_MIN_MAX(float)
+BLARGG_DEF_MIN_MAX(double)
+
+#undef min
+#define min blargg_min
+
+#undef max
+#define max blargg_max
+
+#endif // not clang
+
 // Joybus
 bool gba_joybus_enabled = false;
 bool gba_joybus_active = false;
@@ -60,12 +98,7 @@ bool gba_link_enabled = false;
 bool speedhack = true;
 
 #define LOCAL_LINK_NAME "VBA link memory"
-
-#include <stdint.h>
-
-uint32_t IP_LINK_PORT = 5738;
-
-std::string IP_LINK_BIND_ADDRESS = "*";
+#define IP_LINK_PORT 5738
 
 #include "../common/Port.h"
 #include "GBA.h"
@@ -531,12 +564,8 @@ void GetLinkServerHost(char* const host, size_t size)
 
     if (linkDriver && linkDriver->mode == LINK_GAMECUBE_DOLPHIN)
         strncpy(host, joybusHostAddr.toString().c_str(), size);
-    else if (lanlink.server) {
-        if (IP_LINK_BIND_ADDRESS == "*")
-            strncpy(host, sf::IpAddress::getLocalAddress().toString().c_str(), size);
-        else
-            strncpy(host, IP_LINK_BIND_ADDRESS.c_str(), size);
-    }
+    else if (lanlink.server)
+        strncpy(host, sf::IpAddress::getLocalAddress().toString().c_str(), size);
     else
         strncpy(host, lc.serveraddr.toString().c_str(), size);
 }
@@ -580,7 +609,6 @@ void EnableSpeedHacks(bool enable)
 
 void BootLink(int m_type, const char* hostAddr, int timeout, bool m_hacks, int m_numplayers)
 {
-    (void)m_numplayers; // unused param
     if (linkDriver) {
         // Connection has already been established
         return;
@@ -860,7 +888,7 @@ bool CableServer::RecvGB(void)
     if (counter == 1)
         return false;
 
-    int numbytes = 0;
+    int numbytes;
     if (lanlink.type == 0) { // TCP
         fdset.clear();
 
@@ -1045,9 +1073,7 @@ static ConnectionState InitSocket()
 
         // too bad Listen() doesn't take an address as well
         // then again, old code used INADDR_ANY anyway
-        sf::IpAddress bind_ip = IP_LINK_BIND_ADDRESS == "*" ? sf::IpAddress::Any : IP_LINK_BIND_ADDRESS;
-
-        if (lanlink.tcplistener.listen(IP_LINK_PORT, bind_ip) == sf::Socket::Error)
+        if (lanlink.tcplistener.listen(IP_LINK_PORT) == sf::Socket::Error)
             // Note: old code closed socket & retried once on bind failure
             return LINK_ERROR; // FIXME: error code?
         else
@@ -1204,7 +1230,6 @@ void StartCableSocket(uint16_t value)
 
 static void UpdateCableSocket(int ticks)
 {
-    (void)ticks; // unused param
     if (linkid && transfer_direction == SENDING && lc.transferring && linktime >= transfer_start_time_from_master) {
         cable_data[linkid] = READ16LE(&ioMem[COMM_SIODATA8]);
 
@@ -2174,8 +2199,7 @@ static void StartRFUSocket(uint16_t value)
                         case 0x24: // send [non-important] data (used by server often)
                             rfu_data.rfu_linktime[linkid] = linktime; //save the ticks before reseted to zero
 
-			    // rfu_qsend2 >= 0 due to being `uint8_t`
-                            if (rfu_cansend) {
+                            if (rfu_cansend && rfu_qsend2 >= 0) {
                                 if (rfu_ishost) {
                                     for (int j = 0; j < rfu_data.numgbas; j++)
                                         if (j != linkid) {
@@ -2536,7 +2560,7 @@ uint16_t gbLinkUpdate(uint8_t b, int gbSerialOn) //used on external clock
     rfu_enabled = false;
 
     if (gbSerialOn) {
-        if (gba_link_enabled) {
+        if (gba_link_enabled)
             //Single Computer
             if (GetLinkMode() == LINK_GAMEBOY_IPC) {
 #if (defined __WIN32__ || defined _WIN32)
@@ -2571,7 +2595,7 @@ uint16_t gbLinkUpdate(uint8_t b, int gbSerialOn) //used on external clock
                     }
                 }
             }
-	}
+
         if (dat == 0xff /*||dat==0x00||b==0x00*/) //dat==0xff||dat==0x00
             LinkFirstTime = true;
     }
@@ -2898,7 +2922,7 @@ static void UpdateCableIPC(int ticks)
         }
 
         // next cycle
-        transfer_direction = !transfer_direction;
+        transfer_direction++;
     }
 
     if (transfer_direction > linkmem->trgbas && linktime >= trtimeend[transfer_direction - 3][tspeed]) {

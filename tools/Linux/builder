@@ -2,10 +2,7 @@
 
 set -e
 
-LANG=C LC_COLLATE=C LC_CTYPE=C LC_MESSAGES=C LC_MONETARY=C LC_NUMERIC=C LC_TIME=C LC_ALL=C
-export LANG LC_COLLATE LC_CTYPE LC_MESSAGES LC_MONETARY LC_NUMERIC LC_TIME LC_ALL
-
-export BUILD_ROOT="${BUILD_ROOT:=$HOME/vbam-build-linux}"
+: ${BUILD_ROOT:=$HOME/vbam-build-linux}
 
 . "$(dirname "$0")/../builder/unix.sh"
 
@@ -38,11 +35,11 @@ table_line_append DIST_ARGS libudev '-Dlink-udev-shared=false'
 table_line_append DIST_MAKE_ARGS libudev 'src/udev/libudev.a'
 
 table_line_append DIST_INSTALL_OVERRIDES libudev " \
-    mkdir -p \"\$BUILD_ROOT/root/lib/pkgconfig\"; \
-    mkdir -p \"\$BUILD_ROOT/root/include\"; \
-    cp -a src/udev/libudev.a \"\$BUILD_ROOT/root/lib\"; \
-    cp -a src/libudev/libudev.pc \"\$BUILD_ROOT/root/pkgconfig\"; \
-    cp -a ../src/libudev/libudev.h \"\$BUILD_ROOT/root/include\"; \
+    mkdir -p '$BUILD_ROOT/root/lib/pkgconfig'; \
+    mkdir -p '$BUILD_ROOT/root/include'; \
+    cp -a src/udev/libudev.a '$BUILD_ROOT/root/lib'; \
+    cp -a src/libudev/libudev.pc '$BUILD_ROOT/root/pkgconfig'; \
+    cp -a ../src/libudev/libudev.h '$BUILD_ROOT/root/include'; \
 "
 
 builder "$@"

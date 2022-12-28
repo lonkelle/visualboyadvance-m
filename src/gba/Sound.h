@@ -48,19 +48,18 @@ extern float soundFiltering; // 0.0 = none, 1.0 = max
 //// GBA sound emulation
 
 // GBA sound registers
-#define SGCNT0_H  0x82
-#define SOUNDBIAS 0x88
-#define FIFOA_L   0xa0
-#define FIFOA_H   0xa2
-#define FIFOB_L   0xa4
-#define FIFOB_H   0xa6
+#define SGCNT0_H 0x82
+#define FIFOA_L 0xa0
+#define FIFOA_H 0xa2
+#define FIFOB_L 0xa4
+#define FIFOB_H 0xa6
 
 // Resets emulated sound hardware
 void soundReset();
 
 // Emulates write to sound hardware
-void soundEvent8(uint32_t addr, uint8_t data);
-void soundEvent16(uint32_t addr, uint16_t data); // TODO: error-prone to overload like this
+void soundEvent(uint32_t addr, uint8_t data);
+void soundEvent(uint32_t addr, uint16_t data); // TODO: error-prone to overload like this
 
 // Notifies emulator that a timer has overflowed
 void soundTimerOverflow(int which);
@@ -71,14 +70,12 @@ void interp_rate();
 // Notifies emulator that SOUND_CLOCK_TICKS clocks have passed
 void psoundTickfn();
 extern int SOUND_CLOCK_TICKS; // Number of 16.8 MHz clocks between calls to soundTick()
-
-// 2018-12-10 - counts up from 0 since last psoundTickfn() was called
-extern int soundTicks;
+extern int soundTicks; // Number of 16.8 MHz clocks until soundTick() will be called
 
 // Saves/loads emulator state
 #ifdef __LIBRETRO__
 void soundSaveGame(uint8_t*&);
-void soundReadGame(const uint8_t*& in);
+void soundReadGame(const uint8_t*& in, int version);
 #else
 void soundSaveGame(gzFile);
 void soundReadGame(gzFile, int version);

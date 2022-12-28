@@ -1,26 +1,11 @@
-#include "wayland.h"
-
-#ifdef HAVE_WAYLAND_SUPPORT
-
+#ifdef __WXGTK__
+#include <gdk/gdk.h>
+#ifdef GDK_WINDOWING_WAYLAND
 #include <gdk/gdkwayland.h>
-
-bool IsWayland() { return GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default()); }
-
+        bool IsItWayland() { return GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default()); }
+#else
+        bool IsItWayland() { return false; }
 #endif
-
-// Temporary hack to backport 800d6ed69b from wxWidgets until 3.2.2 is released.
-#ifdef WAYLAND_MOVE_SUBSURFACE_BACKPORT
-#include <wayland-egl.h>
-#define private public
-#include <wx/glcanvas.h>
-#undef private
-
-void MoveWaylandSubsurface(wxGLCanvas* win)
-{
-    if (!IsWayland()) return;
-
-    int x, y;
-    gdk_window_get_origin(win->GTKGetDrawingWindow(), &x, &y);
-    wl_subsurface_set_position(win->m_wlSubsurface, x, y);
-}
+#else
+    bool IsItWayland() { return false; }
 #endif

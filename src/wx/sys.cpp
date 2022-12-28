@@ -1,5 +1,5 @@
+#include "../common/ConfigManager.h"
 #include "../common/SoundSDL.h"
-#include "config/game-control.h"
 #include "wxvbam.h"
 #include "SDL.h"
 #include <wx/ffile.h>
@@ -29,7 +29,7 @@ uint16_t systemGbPalette[24] = {
 int RGB_LOW_BITS_MASK;
 
 // these are local, though.
-int autofire, autohold;
+int joypress[4], autofire;
 static int sensorx[4], sensory[4], sensorz[4];
 bool pause_next;
 bool turbo;
@@ -39,10 +39,12 @@ bool soundBufferLow;
 
 void systemMessage(int id, const char* fmt, ...)
 {
-    (void)id; // unused params
     static char* buf = NULL;
     static int buflen = 80;
     va_list args;
+    // auto-conversion of wxCharBuffer to const char * seems broken
+    // so save underlying wxCharBuffer (or create one of none is used)
+    wxCharBuffer _fmt(wxString(wxGetTranslation(wxString(fmt, wxConvLibc))).mb_str());
 
     if (!buf) {
         buf = (char*)malloc(buflen);
@@ -53,7 +55,7 @@ void systemMessage(int id, const char* fmt, ...)
 
     while (1) {
         va_start(args, fmt);
-        int needsz = vsnprintf(buf, buflen, fmt, args);
+        int needsz = vsnprintf(buf, buflen, _fmt.data(), args);
         va_end(args);
 
         if (needsz < buflen)
@@ -69,15 +71,7 @@ void systemMessage(int id, const char* fmt, ...)
             exit(1);
     }
 
-    wxLogError(wxT("%s"), wxString(buf, wxConvUTF8).c_str());
-}
-
-void systemSendScreen()
-{
-#ifndef NO_FFMPEG
-    GameArea* ga = wxGetApp().frame->GetPanel();
-    if (ga) ga->AddFrame(pix);
-#endif
+    wxLogError(wxT("%s"), wxString(buf, wxConvLibc).mb_str());
 }
 
 static int frames = 0;
@@ -107,87 +101,17 @@ void systemDrawScreen()
 //  <name>.vmv = keystroke log; all values little-endian ints:
 //     <version>.32 = 1
 //     for every joypad change (init to 0) and once at end of movie {
-//        <timestamp>.32 = frames since start of movie in version 1 and frames since the previous change in version 2
+//        <timestamp>.32 = frames since start of movie
 //        <joypad>.32 = default joypad reading at that time
 //     }
 //  <name>.vm0 = saved state
 
-struct supportedMovie {
-    MVFormatID formatId;
-    char const* longName;
-    char const* exts;
-};
-
-const supportedMovie movieSupportedToRecord[] = {
-    { MV_FORMAT_ID_VMV2, "VBA Movie v2, Time Diff Format", "vmv" },
-    { MV_FORMAT_ID_VMV1, "VBA Movie v1, Old Version for Compatibility", "vmv" },
-};
-
-std::vector<MVFormatID> getSupMovFormatsToRecord()
-{
-    std::vector<MVFormatID> result;
-    for (auto&& fmt: movieSupportedToRecord)
-        result.push_back(fmt.formatId);
-    return result;
-}
-
-std::vector<char*> getSupMovNamesToRecord()
-{
-    std::vector<char*> result;
-    for (auto&& fmt: movieSupportedToRecord)
-        result.push_back((char*)fmt.longName);
-    return result;
-}
-
-std::vector<char*> getSupMovExtsToRecord()
-{
-    std::vector<char*> result;
-    for (auto&& fmt: movieSupportedToRecord)
-        result.push_back((char*)fmt.exts);
-    return result;
-}
-
-const supportedMovie movieSupportedToPlayback[] = {
-    { MV_FORMAT_ID_VMV, "VBA Movie", "vmv" },
-};
-
-std::vector<MVFormatID> getSupMovFormatsToPlayback()
-{
-    std::vector<MVFormatID> result;
-    for (auto&& fmt: movieSupportedToPlayback)
-        result.push_back(fmt.formatId);
-    return result;
-}
-
-std::vector<char*> getSupMovNamesToPlayback()
-{
-    std::vector<char*> result;
-    for (auto&& fmt: movieSupportedToPlayback)
-        result.push_back((char*)fmt.longName);
-    return result;
-}
-
-std::vector<char*> getSupMovExtsToPlayback()
-{
-    std::vector<char*> result;
-    for (auto&& fmt: movieSupportedToPlayback)
-        result.push_back((char*)fmt.exts);
-    return result;
-}
-
-const MVFormatID VMVFormatVersions[] = {
-    MV_FORMAT_ID_VMV,
-    MV_FORMAT_ID_VMV1,
-    MV_FORMAT_ID_VMV2,
-};
-
-enum MVFormatID recording_format;
 wxFFile game_file;
 bool game_recording, game_playback;
 uint32_t game_frame;
 uint32_t game_joypad;
 
-void systemStartGameRecording(const wxString& fname, MVFormatID format)
+void systemStartGameRecording(const wxString& fname)
 {
     GameArea* panel = wxGetApp().frame->GetPanel();
 
@@ -199,24 +123,19 @@ void systemStartGameRecording(const wxString& fname, MVFormatID format)
     systemStopGamePlayback();
     wxString fn = fname;
 
-    recording_format = format;
-
     if (fn.size() < 4 || !wxString(fn.substr(fn.size() - 4)).IsSameAs(wxT(".vmv"), false))
         fn.append(wxT(".vmv"));
 
     uint32_t version = 1;
 
-    if (recording_format == MV_FORMAT_ID_VMV2)
-        version = 2;
-
     if (!game_file.Open(fn, wxT("wb")) || game_file.Write(&version, sizeof(version)) != sizeof(version)) {
-        wxLogError(_("Cannot open output file %s"), fname.c_str());
+        wxLogError(_("Cannot open output file %s"), fname.mb_str());
         return;
     }
 
     fn[fn.size() - 1] = wxT('0');
 
-    if (!panel->emusys->emuWriteState(UTF8(fn))) {
+    if (!panel->emusys->emuWriteState(fn.mb_fn_str())) {
         wxLogError(_("Error writing game recording"));
         game_file.Close();
         return;
@@ -248,7 +167,7 @@ void systemStopGameRecording()
 
 uint32_t game_next_frame, game_next_joypad;
 
-void systemStartGamePlayback(const wxString& fname, MVFormatID format)
+void systemStartGamePlayback(const wxString& fname)
 {
     GameArea* panel = wxGetApp().frame->GetPanel();
 
@@ -265,19 +184,15 @@ void systemStartGamePlayback(const wxString& fname, MVFormatID format)
     systemStopGamePlayback();
     wxString fn = fname;
 
-    recording_format = format;
-
     if (fn.size() < 4 || !wxString(fn.substr(fn.size() - 4)).IsSameAs(wxT(".vmv"), false))
         fn.append(wxT(".vmv"));
 
     uint32_t version;
 
-    if (!game_file.Open(fn, wxT("rb")) || game_file.Read(&version, sizeof(version)) != sizeof(version) || wxUINT32_SWAP_ON_BE(version) < 1 || wxUINT32_SWAP_ON_BE(version) > 2) {
-        wxLogError(_("Cannot open recording file %s"), fname.c_str());
+    if (!game_file.Open(fn, wxT("rb")) || game_file.Read(&version, sizeof(version)) != sizeof(version) || wxUINT32_SWAP_ON_BE(version) != 1) {
+        wxLogError(_("Cannot open recording file %s"), fname.mb_str());
         return;
     }
-
-    recording_format = VMVFormatVersions[version];
 
     uint32_t gf, jp;
 
@@ -291,7 +206,7 @@ void systemStartGamePlayback(const wxString& fname, MVFormatID format)
     game_next_joypad = wxUINT32_SWAP_ON_BE(jp);
     fn[fn.size() - 1] = wxT('0');
 
-    if (!panel->emusys->emuReadState(UTF8(fn))) {
+    if (!panel->emusys->emuReadState(fn.mb_fn_str())) {
         wxLogError(_("Error reading game recording"));
         game_file.Close();
         return;
@@ -319,7 +234,7 @@ void systemStopGamePlayback()
     mf->enable_menus();
 }
 
-// updates the joystick data (done in background using wxJoyPoller)
+// updates the joystick data (done in background using wxSDLJoy)
 bool systemReadJoypads()
 {
     return true;
@@ -331,7 +246,7 @@ uint32_t systemReadJoypad(int joy)
     if (joy < 0 || joy > 3)
         joy = gopts.default_stick - 1;
 
-    uint32_t ret = config::GameControlState::Instance().GetJoypad(joy);
+    uint32_t ret = joypress[joy];
 
     if (turbo)
         ret |= KEYM_SPEED;
@@ -346,13 +261,6 @@ uint32_t systemReadJoypad(int joy)
     if (ret & KEYM_AUTO_B) {
         ret |= KEYM_B;
         af |= KEYM_B;
-    }
-
-    uint32_t ah = autohold;
-    uint32_t ah_but = ah | ret;
-    if (ah_but)
-    {
-        ret ^= ah;
     }
 
     static int autofire_trigger = 1;
@@ -389,50 +297,22 @@ uint32_t systemReadJoypad(int joy)
                 game_recording = false;
                 wxLogError(_("Error writing game recording"));
             }
-
-            if (recording_format == MV_FORMAT_ID_VMV2)
-                game_frame = 0;
         }
     } else if (game_playback) {
-        switch (recording_format) {
-        case MV_FORMAT_ID_VMV2:
-            if (game_frame >= game_next_frame) {
-                game_joypad = game_next_joypad;
-                uint32_t gf, jp;
+        while (game_frame >= game_next_frame) {
+            game_joypad = game_next_joypad;
+            uint32_t gf, jp;
 
-                if (game_file.Read(&gf, sizeof(gf)) != sizeof(gf) || game_file.Read(&jp, sizeof(jp)) != sizeof(jp)) {
-                    systemStopGamePlayback();
-                    wxString msg(_("Playback ended"));
-                    systemScreenMessage(msg);
-                    break;
-                }
-
-                game_next_frame = wxUINT32_SWAP_ON_BE(gf);
-                game_next_joypad = wxUINT32_SWAP_ON_BE(jp);
-
-                game_frame = 0;
+            if (game_file.Read(&gf, sizeof(gf)) != sizeof(gf) || game_file.Read(&jp, sizeof(jp)) != sizeof(jp)) {
+                game_file.Close();
+                game_playback = false;
+                wxString msg(_("Playback ended"));
+                systemScreenMessage(msg);
+                break;
             }
-            break;
 
-        case MV_FORMAT_ID_VMV1:
-            while (game_frame >= game_next_frame) {
-                game_joypad = game_next_joypad;
-                uint32_t gf, jp;
-
-                if (game_file.Read(&gf, sizeof(gf)) != sizeof(gf) || game_file.Read(&jp, sizeof(jp)) != sizeof(jp)) {
-                    systemStopGamePlayback();
-                    wxString msg(_("Playback ended"));
-                    systemScreenMessage(msg);
-                    break;
-                }
-
-                game_next_frame = wxUINT32_SWAP_ON_BE(gf);
-                game_next_joypad = wxUINT32_SWAP_ON_BE(jp);
-            }
-            break;
-
-        default:
-            break;
+            game_next_frame = wxUINT32_SWAP_ON_BE(gf);
+            game_next_joypad = wxUINT32_SWAP_ON_BE(jp);
         }
 
         ret = game_joypad;
@@ -479,7 +359,7 @@ void system10Frames(int rate)
         static int speedadj = 0;
         uint32_t t = systemGetClock();
 
-        if (!panel->was_paused && prevclock && (t - prevclock) != (uint32_t)(10000 / rate)) {
+        if (!panel->was_paused && prevclock && (t - prevclock) != 10000 / rate) {
             int speed = t == prevclock ? 100 * 10000 / rate - (t - prevclock) : 100;
 
             // why 98??
@@ -535,7 +415,7 @@ void systemScreenCapture(int num)
 
     do {
         wxString bfn;
-        bfn.Printf(wxT("%s%02d"), panel->game_name().c_str(),
+        bfn.Printf(wxT("%s%02d"), panel->game_name().mb_str(),
             num++);
 
         if (captureFormat == 0)
@@ -549,12 +429,12 @@ void systemScreenCapture(int num)
     fn.Mkdir(0777, wxPATH_MKDIR_FULL);
 
     if (captureFormat == 0)
-        panel->emusys->emuWritePNG(UTF8(fn.GetFullPath()));
+        panel->emusys->emuWritePNG(fn.GetFullPath().mb_fn_str());
     else // if(gopts.cap_format == 1)
-        panel->emusys->emuWriteBMP(UTF8(fn.GetFullPath()));
+        panel->emusys->emuWriteBMP(fn.GetFullPath().mb_fn_str());
 
     wxString msg;
-    msg.Printf(_("Wrote snapshot %s"), fn.GetFullPath().wc_str());
+    msg.Printf(_("Wrote snapshot %s"), fn.GetFullPath().mb_str());
     systemScreenMessage(msg);
 }
 
@@ -573,10 +453,7 @@ uint32_t systemGetClock()
     return wxGetApp().timer.Time();
 }
 
-void systemCartridgeRumble(bool b)
-{
-    wxGetApp().frame->SetJoystickRumble(b);
-}
+void systemCartridgeRumble(bool) {}
 
 static uint8_t sensorDarkness = 0xE8; // total darkness (including daylight on rainy days)
 
@@ -641,16 +518,13 @@ void systemUpdateSolarSensor()
 void systemUpdateMotionSensor()
 {
     for (int i = 0; i < 4; i++) {
-        const uint32_t joy_value =
-            config::GameControlState::Instance().GetJoypad(i);
-
         if (!sensorx[i])
             sensorx[i] = 2047;
 
         if (!sensory[i])
             sensory[i] = 2047;
 
-        if (joy_value & KEYM_MOTION_LEFT) {
+        if (joypress[i] & KEYM_MOTION_LEFT) {
             sunBars--;
 
             if (sunBars < 1)
@@ -663,7 +537,7 @@ void systemUpdateMotionSensor()
 
             if (sensorx[i] < 2047)
                 sensorx[i] = 2057;
-        } else if (joy_value & KEYM_MOTION_RIGHT) {
+        } else if (joypress[i] & KEYM_MOTION_RIGHT) {
             sunBars++;
 
             if (sunBars > 100)
@@ -688,7 +562,7 @@ void systemUpdateMotionSensor()
                 sensorx[i] = 2047;
         }
 
-        if (joy_value & KEYM_MOTION_UP) {
+        if (joypress[i] & KEYM_MOTION_UP) {
             sensory[i] += 3;
 
             if (sensory[i] > 2197)
@@ -696,7 +570,7 @@ void systemUpdateMotionSensor()
 
             if (sensory[i] < 2047)
                 sensory[i] = 2057;
-        } else if (joy_value & KEYM_MOTION_DOWN) {
+        } else if (joypress[i] & KEYM_MOTION_DOWN) {
             sensory[i] -= 3;
 
             if (sensory[i] < 1897)
@@ -721,7 +595,7 @@ void systemUpdateMotionSensor()
         const int highZ = 1800;
         const int accelZ = 3;
 
-        if (joy_value & KEYM_MOTION_IN) {
+        if (joypress[i] & KEYM_MOTION_IN) {
             sensorz[i] += accelZ;
 
             if (sensorz[i] > highZ)
@@ -729,7 +603,7 @@ void systemUpdateMotionSensor()
 
             if (sensorz[i] < centerZ)
                 sensorz[i] = centerZ + (accelZ * 300);
-        } else if (joy_value & KEYM_MOTION_OUT) {
+        } else if (joypress[i] & KEYM_MOTION_OUT) {
             sensorz[i] -= accelZ;
 
             if (sensorz[i] < lowZ)
@@ -817,13 +691,13 @@ private:
 
 IMPLEMENT_CLASS(PrintDialog, wxEvtHandler)
 
-PrintDialog::PrintDialog(const uint16_t* data, int lines, bool cont):
-    wxPrintout(wxGetApp().frame->GetPanel()->game_name() + wxT(" Printout")),
-    img(160, lines),
-    npw(1),
-    nph(1)
+PrintDialog::PrintDialog(const uint16_t* data, int lines, bool cont)
+    : img(160, lines)
+    , npw(1)
+    , nph(1)
+    , wxPrintout(wxGetApp().frame->GetPanel()->game_name() + wxT(" Printout"))
 {
-    dlg = wxStaticCast(wxGetApp().frame->FindWindowByName("GBPrinter"), wxDialog);
+    dlg = wxStaticCast(wxGetApp().frame->FindWindow(XRCID("GBPrinter")), wxDialog);
     p = XRCCTRL(*dlg, "Preview", wxPanel);
     wxScrolledWindow* pp = wxStaticCast(p->GetParent(), wxScrolledWindow);
     wxSize sz(320, lines * 2);
@@ -895,7 +769,6 @@ void PrintDialog::ShowImg(wxPaintEvent& evt)
 
 void PrintDialog::ChangeMag(wxCommandEvent& evt)
 {
-    (void)evt; // unused params
     int m = mag->GetSelection() + 1;
     wxScrolledWindow* pp = wxStaticCast(p->GetParent(), wxScrolledWindow);
     wxSize sz(m * 160, m * img.GetHeight());
@@ -932,7 +805,7 @@ void PrintDialog::DoSave(wxCommandEvent&)
 
     if (scimg.SaveFile(of)) {
         wxString msg;
-        msg.Printf(_("Wrote printer output to %s"), of.wc_str());
+        msg.Printf(_("Wrote printer output to %s"), of.mb_str());
         systemScreenMessage(msg);
         wxButton* cb = wxStaticCast(dlg->FindWindow(wxID_CANCEL), wxButton);
 
@@ -1018,8 +891,6 @@ void PrintDialog::DoPrint(wxCommandEvent&)
 
 void systemGbPrint(uint8_t* data, int len, int pages, int feed, int pal, int cont)
 {
-    (void)pages; // unused params
-    (void)cont; // unused params
     ModalPause mp; // this might take a while, so signal a pause
     GameArea* panel = wxGetApp().frame->GetPanel();
     static uint16_t* accum_prdata;
@@ -1092,7 +963,7 @@ void systemGbPrint(uint8_t* data, int len, int pages, int feed, int pal, int con
 
         do {
             wxString bfn;
-            bfn.Printf(wxT("%s-print%02d"), panel->game_name().c_str(),
+            bfn.Printf(wxT("%s-print%02d"), panel->game_name().mb_str(),
                 num++);
 
             if (captureFormat == 0)
@@ -1111,11 +982,11 @@ void systemGbPrint(uint8_t* data, int len, int pages, int feed, int pal, int con
         systemGreenShift = 5;
         systemBlueShift = 0;
         wxString of = fn.GetFullPath();
-        bool ret = captureFormat == 0 ? utilWritePNGFile(UTF8(of), 160, lines, (uint8_t*)to_print) : utilWriteBMPFile(UTF8(of), 160, lines, (uint8_t*)to_print);
+        bool ret = captureFormat == 0 ? utilWritePNGFile(of.mb_fn_str(), 160, lines, (uint8_t*)to_print) : utilWriteBMPFile(of.mb_fn_str(), 160, lines, (uint8_t*)to_print);
 
         if (ret) {
             wxString msg;
-            msg.Printf(_("Wrote printer output to %s"), of.wc_str());
+            msg.Printf(_("Wrote printer output to %s"), of.mb_str());
             systemScreenMessage(msg);
         }
 
@@ -1150,7 +1021,7 @@ void systemGbPrint(uint8_t* data, int len, int pages, int feed, int pal, int con
 void systemScreenMessage(const wxString& msg)
 {
     if (wxGetApp().frame && wxGetApp().frame->IsShown()) {
-        wxPuts(UTF8(msg)); // show **something** on terminal
+        wxPuts(msg);
         MainFrame* f = wxGetApp().frame;
         GameArea* panel = f->GetPanel();
 
@@ -1165,7 +1036,7 @@ void systemScreenMessage(const wxString& msg)
 
 void systemScreenMessage(const char* msg)
 {
-    systemScreenMessage(wxString(msg, wxConvUTF8));
+    systemScreenMessage(wxString(msg, wxConvLibc));
 }
 
 bool systemCanChangeSoundQuality()
@@ -1225,10 +1096,6 @@ SoundDriver* systemSoundInit()
     case AUD_XAUDIO2:
         return newXAudio2_Output();
 #endif
-#ifndef NO_FAUDIO
-    case AUD_FAUDIO:
-        return newFAudio_Output();
-#endif
 #endif
 
     default:
@@ -1240,8 +1107,6 @@ SoundDriver* systemSoundInit()
 
 void systemOnWriteDataToSoundBuffer(const uint16_t* finalWave, int length)
 {
-    (void)finalWave; // unused params
-    (void)length; // unused params
 #ifndef NO_FFMPEG
     GameArea* panel = wxGetApp().frame->GetPanel();
 
@@ -1254,8 +1119,6 @@ void systemOnWriteDataToSoundBuffer(const uint16_t* finalWave, int length)
 void systemOnSoundShutdown()
 {
 }
-
-#ifndef NO_DEBUGGER
 
 extern int (*remoteSendFnc)(char*, int);
 extern int (*remoteRecvFnc)(char*, int);
@@ -1306,8 +1169,8 @@ bool debugOpenPty()
 
     if ((pty_master = posix_openpt(O_RDWR | O_NOCTTY)) < 0 || grantpt(pty_master) < 0 || unlockpt(pty_master) < 0 || !(slave_name = ptsname(pty_master))) {
         wxLogError(_("Error opening pseudo tty: %s"), wxString(strerror(errno),
-                                                          wxConvUTF8)
-                                                          .c_str());
+                                                          wxConvLibc)
+                                                          .mb_str());
 
         if (pty_master >= 0) {
             close(pty_master);
@@ -1317,7 +1180,7 @@ bool debugOpenPty()
         return false;
     }
 
-    pty_slave = wxString(slave_name, wxConvUTF8);
+    pty_slave = wxString(slave_name, wxConvLibc);
     remoteSendFnc = debugWritePty;
     remoteRecvFnc = debugReadPty;
     remoteCleanUpFnc = debugClosePty;
@@ -1421,17 +1284,15 @@ bool debugWaitSocket()
     return debug_remote != NULL;
 }
 
-#endif
-
 void log(const char* defaultMsg, ...)
 {
+    static FILE* out = NULL;
     va_list valist;
     char buf[2048];
     va_start(valist, defaultMsg);
     vsnprintf(buf, 2048, defaultMsg, valist);
-    wxString msg = wxString(buf, wxConvUTF8);
     va_end(valist);
-    wxGetApp().log.append(msg);
+    wxGetApp().log.append(wxString(buf, wxConvLibc));
 
     if (wxGetApp().IsMainLoopRunning()) {
         LogDialog* d = wxGetApp().frame->logdlg;
@@ -1440,6 +1301,19 @@ void log(const char* defaultMsg, ...)
             d->Update();
         }
 
-        systemScreenMessage(msg);
+        systemScreenMessage(buf);
     }
+
+    if (out == NULL) {
+        // FIXME: this should be an option
+        wxFileName trace_log(wxGetApp().GetConfigurationPath(), wxT("trace.log"));
+        out = fopen(trace_log.GetFullPath().mb_str(), "w");
+
+        if (!out)
+            return;
+    }
+
+    va_start(valist, defaultMsg);
+    vfprintf(out, defaultMsg, valist);
+    va_end(valist);
 }

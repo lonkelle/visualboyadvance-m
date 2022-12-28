@@ -33,16 +33,16 @@ class wxBoolIntValidator : public wxValidator {
 public:
     wxBoolIntValidator(int* _vptr, int _val, int _mask = ~0)
         : wxValidator()
+        , vptr(_vptr)
         , val(_val)
         , mask(_mask)
-        , vptr(_vptr)
     {
     }
     wxBoolIntValidator(const wxBoolIntValidator& v)
         : wxValidator()
+        , vptr(v.vptr)
         , val(v.val)
         , mask(v.mask)
-        , vptr(v.vptr)
     {
     }
     wxObject* Clone() const
@@ -53,22 +53,23 @@ public:
     bool TransferFromWindow();
     bool Validate(wxWindow* p)
     {
-        (void)p; // unused params
         return true;
     }
 
 protected:
     int val, mask, *vptr;
 };
-class wxUIntValidator : public wxValidator {
+
+class wxPositiveDoubleValidator : public wxGenericValidator {
 public:
-    wxUIntValidator(uint32_t* _val);
+    wxPositiveDoubleValidator(double* _val);
     bool TransferToWindow();
     bool TransferFromWindow();
     bool Validate(wxWindow* parent);
     wxObject* Clone() const;
 protected:
-    uint32_t* uint_val;
+    double* double_val;
+    wxString str_val;
 };
 
 // boolean copy-only validator with reversed value
@@ -93,7 +94,6 @@ public:
     bool TransferFromWindow();
     bool Validate(wxWindow* p)
     {
-        (void)p; // unused params
         return true;
     }
 
@@ -101,38 +101,32 @@ protected:
     bool* vptr;
 };
 
-#include <wx/stattext.h>
-
 // wxFilePickerCtrl/wxDirPickerCtrl copy-only vvalidator
 class wxFileDirPickerValidator : public wxValidator {
 public:
-    wxFileDirPickerValidator(wxString* _vptr, wxStaticText* _label = NULL)
+    wxFileDirPickerValidator(wxString* _vptr)
         : wxValidator()
         , vptr(_vptr)
-        , vlabel(_label)
     {
     }
     wxFileDirPickerValidator(const wxFileDirPickerValidator& v)
         : wxValidator()
         , vptr(v.vptr)
-        , vlabel(v.vlabel)
     {
     }
     wxObject* Clone() const
     {
-        return new wxFileDirPickerValidator(vptr, vlabel);
+        return new wxFileDirPickerValidator(vptr);
     }
     bool TransferToWindow();
     bool TransferFromWindow();
     bool Validate(wxWindow* p)
     {
-        (void)p; // unused params
         return true;
     }
 
 protected:
     wxString* vptr;
-    wxStaticText* vlabel;
 };
 
 // color copy-only validator that supports either 32-bit or 16-bit color
@@ -151,8 +145,8 @@ public:
     }
     wxColorValidator(uint16_t* vptr)
         : wxValidator()
-        , ptr32(0)
         , ptr16(vptr)
+        , ptr32(0)
     {
     }
     wxColorValidator(const wxColorValidator& v)
@@ -169,7 +163,6 @@ public:
     bool TransferFromWindow();
     bool Validate(wxWindow* p)
     {
-        (void)p; // unused params
         return true;
     }
 

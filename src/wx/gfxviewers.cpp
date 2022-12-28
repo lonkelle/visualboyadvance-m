@@ -229,7 +229,7 @@ public:
             s.Printf(wxT("0x%08X"), address);
             addr->SetLabel(s);
 
-            if ((!mode || (mode < 3 || mode > 5)) && bg < 2) {
+            if (!mode || (mode < 3 || mode > 5) && bg < 2) {
                 uint16_t value = *((uint16_t*)&vram[address - 0x6000000]);
                 s.Printf(wxT("%d"), value & 1023);
                 tile->SetLabel(s);
@@ -565,8 +565,6 @@ public:
     GBMapViewer()
         : GfxViewer(wxT("GBMapViewer"), 256, 256)
     {
-        charbase = 0x0000;
-        mapbase = 0x1800;
         getradio(, "CharBase0", charbase, 0x0000);
         getradio(, "CharBase1", charbase, 0x0800);
         getradio(, "MapBase0", mapbase, 0x1800);
@@ -738,10 +736,6 @@ void MainFrame::MapViewer()
     case IMAGE_GB:
         LoadXRCViewer(GBMap);
         break;
-
-    case IMAGE_UNKNOWN:
-	// do nothing
-	break;
     }
 }
 
@@ -1117,10 +1111,6 @@ void MainFrame::OAMViewer()
     case IMAGE_GB:
         LoadXRCViewer(GBOAM);
         break;
-
-    case IMAGE_UNKNOWN:
-	// do nothing
-	break;
     }
 }
 
@@ -1241,13 +1231,11 @@ public:
     }
     void SelBG(wxMouseEvent& ev)
     {
-	(void)ev; // unused params
         spv->SetSel(-1, -1, false);
         ShowSel();
     }
     void SelSprite(wxMouseEvent& ev)
     {
-	(void)ev; // unused params
         bpv->SetSel(-1, -1, false);
         ShowSel();
     }
@@ -1283,17 +1271,14 @@ public:
     }
     void SaveBG(wxCommandEvent& ev)
     {
-	(void)ev; // unused params
         savepal(this, colbmp, 16 * 16, wxT("bg"));
     }
     void SaveOBJ(wxCommandEvent& ev)
     {
-	(void)ev; // unused params
         savepal(this, colbmp + 16 * 16 * 3, 16 * 16, wxT("obj"));
     }
     void ChangeBackdrop(wxCommandEvent& ev)
     {
-	(void)ev; // unused params
         // FIXME: this should really be a preference
         // should also have some way of indicating selection
         // perhaps replace w/ checkbox + colorpickerctrl
@@ -1307,7 +1292,7 @@ public:
             *cd = dlg.GetColourData();
             wxColour c = cd->GetColour();
             //Binary or the upper 5 bits of each color choice
-            customBackdropColor = ((c.Red() >> 3) != 0) || (((c.Green() >> 3) << 5) != 0) || (((c.Blue() >> 3) << 10) != 0);
+            customBackdropColor = (c.Red() >> 3) || ((c.Green() >> 3) << 5) || ((c.Blue() >> 3) << 10);
         } else
             // kind of an unintuitive way to turn it off...
             customBackdropColor = -1;
@@ -1360,13 +1345,11 @@ public:
     }
     void SelBG(wxMouseEvent& ev)
     {
-	(void)ev; // unused params
         spv->SetSel(-1, -1, false);
         ShowSel();
     }
     void SelSprite(wxMouseEvent& ev)
     {
-	(void)ev; // unused params
         bpv->SetSel(-1, -1, false);
         ShowSel();
     }
@@ -1401,12 +1384,10 @@ public:
     }
     void SaveBG(wxCommandEvent& ev)
     {
-	(void)ev; // unused params
         savepal(this, colbmp, 4 * 8, wxT("bg"));
     }
     void SaveOBJ(wxCommandEvent& ev)
     {
-	(void)ev; // unused params
         savepal(this, colbmp + 4 * 8 * 3, 4 * 8, wxT("obj"));
     }
 
@@ -1436,10 +1417,6 @@ void MainFrame::PaletteViewer()
     case IMAGE_GB:
         LoadXRCViewer(GBPalette);
         break;
-
-    case IMAGE_UNKNOWN:
-	// do nothing
-	break;
     }
 }
 
@@ -1582,44 +1559,6 @@ public:
         }
     }
 
-    void SaveGBATile(wxCommandEvent& ev)
-    {
-        (void)ev; // unused params
-        GameArea* panel = wxGetApp().frame->GetPanel();
-        wxString bmp_save_dir = wxGetApp().frame->GetGamePath(gopts.scrshot_dir);
-        // no attempt is made here to translate the dialog type name
-        // it's just a suggested name, anyway
-        wxString def_name = panel->game_name() + wxT('-') + dname;
-        def_name.resize(def_name.size() - 6); // strlen("Viewer")
-
-        if (captureFormat)
-            def_name += wxT(".bmp");
-        else
-            def_name += wxT(".png");
-
-        wxFileDialog dlg(GetGrandParent(), _("Select output file"), bmp_save_dir, def_name,
-            _("PNG images|*.png|BMP images|*.bmp"), wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
-        dlg.SetFilterIndex(captureFormat);
-        int ret = dlg.ShowModal();
-        bmp_save_dir = dlg.GetDirectory();
-
-        if (ret != wxID_OK)
-            return;
-
-        wxBitmap obmp = gv->bm->GetSubBitmap(wxRect(0, 0, gv->bmw, gv->bmh));
-        wxString fn = dlg.GetPath();
-        wxBitmapType fmt = dlg.GetFilterIndex() ? wxBITMAP_TYPE_BMP : wxBITMAP_TYPE_PNG;
-
-        if (fn.size() > 4) {
-            if (wxString(fn.substr(fn.size() - 4)).IsSameAs(wxT(".bmp"), false))
-                fmt = wxBITMAP_TYPE_BMP;
-            else if (wxString(fn.substr(fn.size() - 4)).IsSameAs(wxT(".png"), false))
-                fmt = wxBITMAP_TYPE_PNG;
-        }
-
-        obmp.SaveFile(fn, fmt);
-    }
-
 protected:
     int charbase, is256, palette;
     wxControl *tileno, *addr;
@@ -1629,7 +1568,6 @@ protected:
 };
 
 BEGIN_EVENT_TABLE(TileViewer, GfxViewer)
-EVT_BUTTON(XRCID("SaveGBATile"), TileViewer::SaveGBATile)
 EVT_GFX_CLICK(wxID_ANY, TileViewer::UpdateMouseInfoEv)
 END_EVENT_TABLE()
 
@@ -1724,44 +1662,6 @@ public:
         }
     }
 
-    void SaveGBTile(wxCommandEvent& ev)
-    {
-        (void)ev; // unused params
-        GameArea* panel = wxGetApp().frame->GetPanel();
-        wxString bmp_save_dir = wxGetApp().frame->GetGamePath(gopts.scrshot_dir);
-        // no attempt is made here to translate the dialog type name
-        // it's just a suggested name, anyway
-        wxString def_name = panel->game_name() + wxT('-') + dname;
-        def_name.resize(def_name.size() - 6); // strlen("Viewer")
-
-        if (captureFormat)
-            def_name += wxT(".bmp");
-        else
-            def_name += wxT(".png");
-
-        wxFileDialog dlg(GetGrandParent(), _("Select output file"), bmp_save_dir, def_name,
-            _("PNG images|*.png|BMP images|*.bmp"), wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
-        dlg.SetFilterIndex(captureFormat);
-        int ret = dlg.ShowModal();
-        bmp_save_dir = dlg.GetDirectory();
-
-        if (ret != wxID_OK)
-            return;
-
-        wxBitmap obmp = gv->bm->GetSubBitmap(wxRect(0, 0, gv->bmw, gv->bmh));
-        wxString fn = dlg.GetPath();
-        wxBitmapType fmt = dlg.GetFilterIndex() ? wxBITMAP_TYPE_BMP : wxBITMAP_TYPE_PNG;
-
-        if (fn.size() > 4) {
-            if (wxString(fn.substr(fn.size() - 4)).IsSameAs(wxT(".bmp"), false))
-                fmt = wxBITMAP_TYPE_BMP;
-            else if (wxString(fn.substr(fn.size() - 4)).IsSameAs(wxT(".png"), false))
-                fmt = wxBITMAP_TYPE_PNG;
-        }
-
-        obmp.SaveFile(fn, fmt);
-    }
-
 protected:
     int bank, charbase, palette;
     wxControl *addr, *tileno;
@@ -1771,7 +1671,6 @@ protected:
 };
 
 BEGIN_EVENT_TABLE(GBTileViewer, GfxViewer)
-EVT_BUTTON(XRCID("SaveGBTile"), GBTileViewer::SaveGBTile)
 EVT_GFX_CLICK(wxID_ANY, GBTileViewer::UpdateMouseInfoEv)
 END_EVENT_TABLE()
 }
@@ -1786,9 +1685,5 @@ void MainFrame::TileViewer()
     case IMAGE_GB:
         LoadXRCViewer(GBTile);
         break;
-
-    case IMAGE_UNKNOWN:
-	// do nothing
-	break;
     }
 }

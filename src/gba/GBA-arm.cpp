@@ -144,8 +144,8 @@ static void count(uint32_t opcode, int cond_res)
 //#ifdef __POWERPC__
 #define OP_SUBS                            \
     {                                      \
-        int Flags;                \
-        int Result;               \
+        register int Flags;                \
+        register int Result;               \
         asm volatile("subco. %0, %2, %3\n" \
                      "mcrxr cr1\n"         \
                      "mfcr %1\n"           \
@@ -161,8 +161,8 @@ static void count(uint32_t opcode, int cond_res)
     }
 #define OP_RSBS                             \
     {                                       \
-        int Flags;                 \
-        int Result;                \
+        register int Flags;                 \
+        register int Result;                \
         asm volatile("subfco. %0, %2, %3\n" \
                      "mcrxr cr1\n"          \
                      "mfcr %1\n"            \
@@ -178,8 +178,8 @@ static void count(uint32_t opcode, int cond_res)
     }
 #define OP_ADDS                            \
     {                                      \
-        int Flags;                \
-        int Result;               \
+        register int Flags;                \
+        register int Result;               \
         asm volatile("addco. %0, %2, %3\n" \
                      "mcrxr cr1\n"         \
                      "mfcr %1\n"           \
@@ -195,8 +195,8 @@ static void count(uint32_t opcode, int cond_res)
     }
 #define OP_ADCS                            \
     {                                      \
-        int Flags;                \
-        int Result;               \
+        register int Flags;                \
+        register int Result;               \
         asm volatile("mtspr xer, %4\n"     \
                      "addeo. %0, %2, %3\n" \
                      "mcrxr cr1\n"         \
@@ -214,8 +214,8 @@ static void count(uint32_t opcode, int cond_res)
     }
 #define OP_SBCS                             \
     {                                       \
-        int Flags;                 \
-        int Result;                \
+        register int Flags;                 \
+        register int Result;                \
         asm volatile("mtspr xer, %4\n"      \
                      "subfeo. %0, %3, %2\n" \
                      "mcrxr cr1\n"          \
@@ -233,8 +233,8 @@ static void count(uint32_t opcode, int cond_res)
     }
 #define OP_RSCS                             \
     {                                       \
-        int Flags;                 \
-        int Result;                \
+        register int Flags;                 \
+        register int Result;                \
         asm volatile("mtspr xer, %4\n"      \
                      "subfeo. %0, %2, %3\n" \
                      "mcrxr cr1\n"          \
@@ -252,8 +252,8 @@ static void count(uint32_t opcode, int cond_res)
     }
 #define OP_CMP                             \
     {                                      \
-        int Flags;                \
-        int Result;               \
+        register int Flags;                \
+        register int Result;               \
         asm volatile("subco. %0, %2, %3\n" \
                      "mcrxr cr1\n"         \
                      "mfcr %1\n"           \
@@ -268,8 +268,8 @@ static void count(uint32_t opcode, int cond_res)
     }
 #define OP_CMN                             \
     {                                      \
-        int Flags;                \
-        int Result;               \
+        register int Flags;                \
+        register int Result;               \
         asm volatile("addco. %0, %2, %3\n" \
                      "mcrxr cr1\n"         \
                      "mfcr %1\n"           \
@@ -1235,7 +1235,6 @@ DEFINE_ALU_INSN_C(1F, 3F, MVNS, YES)
     int mult = (opcode & 0x0F);                                        \
     uint32_t rs = reg[(opcode >> 8) & 0x0F].I;                         \
     int acc = (opcode >> 12) & 0x0F; /* or destLo */                   \
-    maybe_unused(acc);                                                 \
     int dest = (opcode >> 16) & 0x0F; /* or destHi */                  \
     OP;                                                                \
     SETCOND;                                                           \
@@ -1251,7 +1250,7 @@ DEFINE_ALU_INSN_C(1F, 3F, MVNS, YES)
         clockTicks += 3;                                               \
     if (busPrefetchCount == 0)                                         \
         busPrefetchCount = ((busPrefetchCount + 1) << clockTicks) - 1; \
-    clockTicks += CYCLES + 1 + codeTicksAccess32(armNextPC);
+    clockTicks += 1 + codeTicksAccess32(armNextPC);
 
 #define OP_MUL \
     reg[dest].I = reg[mult].I * rs;
@@ -2576,25 +2575,31 @@ static INSN_REGPARM void arm9F0(uint32_t opcode)
 // B <offset>
 static INSN_REGPARM void armA00(uint32_t opcode)
 {
-    int32_t offset = ((int32_t)(opcode & 0x00FFFFFF) << 8) >> 6;
-    reg[15].I += offset;
+    int offset = opcode & 0x00FFFFFF;
+    if (offset & 0x00800000)
+        offset |= 0xFF000000; // negative offset
+    reg[15].I += offset << 2;
     armNextPC = reg[15].I;
     reg[15].I += 4;
     ARM_PREFETCH;
-    clockTicks = (codeTicksAccessSeq32(armNextPC) * 2) + codeTicksAccess32(armNextPC) + 3;
+    clockTicks = codeTicksAccessSeq32(armNextPC) + 1;
+    clockTicks = (clockTicks * 2) + codeTicksAccess32(armNextPC) + 1;
     busPrefetchCount = 0;
 }
 
 // BL <offset>
 static INSN_REGPARM void armB00(uint32_t opcode)
 {
-    int32_t offset = ((int32_t)(opcode & 0x00FFFFFF) << 8) >> 6;
+    int offset = opcode & 0x00FFFFFF;
+    if (offset & 0x00800000)
+        offset |= 0xFF000000; // negative offset
     reg[14].I = reg[15].I - 4;
-    reg[15].I += offset;
+    reg[15].I += offset << 2;
     armNextPC = reg[15].I;
     reg[15].I += 4;
     ARM_PREFETCH;
-    clockTicks = (codeTicksAccessSeq32(armNextPC) * 2) + codeTicksAccess32(armNextPC) + 3;
+    clockTicks = codeTicksAccessSeq32(armNextPC) + 1;
+    clockTicks = (clockTicks * 2) + codeTicksAccess32(armNextPC) + 1;
     busPrefetchCount = 0;
 }
 
@@ -2610,7 +2615,8 @@ static INSN_REGPARM void armE01(uint32_t opcode)
 // SWI <comment>
 static INSN_REGPARM void armF00(uint32_t opcode)
 {
-    clockTicks = (codeTicksAccessSeq32(armNextPC) * 2) + codeTicksAccess32(armNextPC) + 3;
+    clockTicks = codeTicksAccessSeq32(armNextPC) + 1;
+    clockTicks = (clockTicks * 2) + codeTicksAccess32(armNextPC) + 1;
     busPrefetchCount = 0;
     CPUSoftwareInterrupt(opcode & 0x00FFFFFF);
 }

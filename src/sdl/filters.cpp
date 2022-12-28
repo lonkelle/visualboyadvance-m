@@ -605,7 +605,6 @@ void (*sdlStretcher24[4])(uint8_t*, uint8_t*, int) = {
 
 bool sdlStretchInit(int colorDepth, int sizeMultiplier, int srcWidth)
 {
-    (void)srcWidth; // unused params
 #ifndef C_CORE
     sdlMakeStretcher(srcWidth, sizeMultiplier);
 #else

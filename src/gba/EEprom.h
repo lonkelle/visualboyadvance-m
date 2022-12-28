@@ -5,7 +5,7 @@
 
 #ifdef __LIBRETRO__
 extern void eepromSaveGame(uint8_t*& data);
-extern void eepromReadGame(const uint8_t*& data);
+extern void eepromReadGame(const uint8_t*& data, int version);
 #else // !__LIBRETRO__
 extern void eepromSaveGame(gzFile _gzFile);
 extern void eepromReadGame(gzFile _gzFile, int version);

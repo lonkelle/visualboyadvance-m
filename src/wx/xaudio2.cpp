@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 // Interface
+#include "../common/ConfigManager.h"
 #include "../common/SoundDriver.h"
 
 // XAudio2

@@ -1,9 +1,5 @@
-set(link_cmd_file CMakeFiles/visualboyadvance-m.dir/linklibs.rsp)
+file(READ CMakeFiles/visualboyadvance-m.dir/linklibs.rsp link_libs)
 
-if(EXISTS ${link_cmd_file})
-    file(READ ${link_cmd_file} link_libs)
+string(REPLACE "-Wl,-Bdynamic" "" link_libs ${link_libs})
 
-    string(REPLACE "-Wl,-Bdynamic" "" link_libs ${link_libs})
-
-    file(WRITE ${link_cmd_file} ${link_libs})
-endif()
+file(WRITE CMakeFiles/visualboyadvance-m.dir/linklibs.rsp ${link_libs})

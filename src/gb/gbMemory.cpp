@@ -308,7 +308,7 @@ mapperMBC3 gbDataMBC3 = {
     0, // timer latched hours
     0, // timer latched days
     0, // timer latched control
-    {0}  // last time
+    (time_t)-1 // last time
 };
 
 void memoryUpdateMBC3Clock()
@@ -361,10 +361,8 @@ void mapperMBC3ROM(uint16_t address, uint8_t value)
     case 0x0000: // RAM enable register
         gbDataMBC3.mapperRAMEnable = ((value & 0x0a) == 0x0a ? 1 : 0);
         break;
-    case 0x2000: { // ROM bank select
-        if (gbRomSize != 0x00400000)
-            value = value & 0x7f; // Assume 2MiB, unless MBC30.
-
+    case 0x2000: // ROM bank select
+        value = value & 0x7f;
         if (value == 0)
             value = 1;
         if (value == gbDataMBC3.mapperROMBank)
@@ -373,16 +371,13 @@ void mapperMBC3ROM(uint16_t address, uint8_t value)
         tmpAddress = value << 14;
 
         tmpAddress &= gbRomSizeMask;
-
         gbDataMBC3.mapperROMBank = value;
-
         gbMemoryMap[0x04] = &gbRom[tmpAddress];
         gbMemoryMap[0x05] = &gbRom[tmpAddress + 0x1000];
         gbMemoryMap[0x06] = &gbRom[tmpAddress + 0x2000];
         gbMemoryMap[0x07] = &gbRom[tmpAddress + 0x3000];
 
         break;
-    }
     case 0x4000: // RAM bank select
         if (value < 8) {
             if (value == gbDataMBC3.mapperRAMBank)
@@ -394,7 +389,7 @@ void mapperMBC3ROM(uint16_t address, uint8_t value)
             gbDataMBC3.mapperRAMBank = value;
             gbDataMBC3.mapperRAMAddress = tmpAddress;
         } else {
-            if (gbRTCPresent && gbDataMBC3.mapperRAMEnable) {
+            if (gbDataMBC3.mapperRAMEnable) {
                 gbDataMBC3.mapperRAMBank = -1;
 
                 gbDataMBC3.mapperClockRegister = value;
@@ -402,18 +397,16 @@ void mapperMBC3ROM(uint16_t address, uint8_t value)
         }
         break;
     case 0x6000: // clock latch
-        if (gbRTCPresent) {
-            if (gbDataMBC3.mapperClockLatch == 0 && value == 1) {
-                memoryUpdateMBC3Clock();
-                gbDataMBC3.mapperLSeconds = gbDataMBC3.mapperSeconds;
-                gbDataMBC3.mapperLMinutes = gbDataMBC3.mapperMinutes;
-                gbDataMBC3.mapperLHours = gbDataMBC3.mapperHours;
-                gbDataMBC3.mapperLDays = gbDataMBC3.mapperDays;
-                gbDataMBC3.mapperLControl = gbDataMBC3.mapperControl;
-            }
-            if (value == 0x00 || value == 0x01)
-                gbDataMBC3.mapperClockLatch = value;
+        if (gbDataMBC3.mapperClockLatch == 0 && value == 1) {
+            memoryUpdateMBC3Clock();
+            gbDataMBC3.mapperLSeconds = gbDataMBC3.mapperSeconds;
+            gbDataMBC3.mapperLMinutes = gbDataMBC3.mapperMinutes;
+            gbDataMBC3.mapperLHours = gbDataMBC3.mapperHours;
+            gbDataMBC3.mapperLDays = gbDataMBC3.mapperDays;
+            gbDataMBC3.mapperLControl = gbDataMBC3.mapperControl;
         }
+        if (value == 0x00 || value == 0x01)
+            gbDataMBC3.mapperClockLatch = value;
         break;
     }
 }
@@ -422,12 +415,12 @@ void mapperMBC3ROM(uint16_t address, uint8_t value)
 void mapperMBC3RAM(uint16_t address, uint8_t value)
 {
     if (gbDataMBC3.mapperRAMEnable) {
-        if (gbDataMBC3.mapperRAMBank >= 0) {
+        if (gbDataMBC3.mapperRAMBank != -1) {
             if (gbRamSize) {
                 gbMemoryMap[address >> 12][address & 0x0fff] = value;
                 systemSaveUpdateCounter = SYSTEM_SAVE_UPDATED;
             }
-        } else if (gbRTCPresent) {
+        } else {
             time(&gbDataMBC3.mapperLastTime);
             switch (gbDataMBC3.mapperClockRegister) {
             case 0x08:
@@ -457,25 +450,25 @@ void mapperMBC3RAM(uint16_t address, uint8_t value)
 uint8_t mapperMBC3ReadRAM(uint16_t address)
 {
     if (gbDataMBC3.mapperRAMEnable) {
-        if (gbDataMBC3.mapperRAMBank >= 0) {
+        if (gbDataMBC3.mapperRAMBank != -1) {
             return gbMemoryMap[address >> 12][address & 0x0fff];
-        } else if (gbRTCPresent) {
-            switch (gbDataMBC3.mapperClockRegister) {
-            case 0x08:
-                return gbDataMBC3.mapperLSeconds;
-                break;
-            case 0x09:
-                return gbDataMBC3.mapperLMinutes;
-                break;
-            case 0x0a:
-                return gbDataMBC3.mapperLHours;
-                break;
-            case 0x0b:
-                return gbDataMBC3.mapperLDays;
-                break;
-            case 0x0c:
-                return gbDataMBC3.mapperLControl;
-            }
+        }
+
+        switch (gbDataMBC3.mapperClockRegister) {
+        case 0x08:
+            return gbDataMBC3.mapperLSeconds;
+            break;
+        case 0x09:
+            return gbDataMBC3.mapperLMinutes;
+            break;
+        case 0x0a:
+            return gbDataMBC3.mapperLHours;
+            break;
+        case 0x0b:
+            return gbDataMBC3.mapperLDays;
+            break;
+        case 0x0c:
+            return gbDataMBC3.mapperLControl;
         }
     }
 
@@ -567,10 +560,9 @@ void mapperMBC5ROM(uint16_t address, uint8_t value)
         }
         break;
     case 0x4000: // RAM bank select
-        if (gbDataMBC5.isRumbleCartridge) {
-            systemCartridgeRumble(value & 8);
+        if (gbDataMBC5.isRumbleCartridge)
             value &= 0x07;
-        } else
+        else
             value &= 0x0f;
         if (value == gbDataMBC5.mapperRAMBank)
             break;
@@ -998,44 +990,9 @@ mapperHuC3 gbDataHuC3 = {
     1, // ROM bank
     0, // RAM bank
     0, // RAM address
-    0, // Address
     0, // RAM flag
-    0, // RAM read value
-    0, // Register 1
-    0, // Register 2
-    0, // Register 3
-    0, // Register 4
-    0, // Register 5
-    0, // Register 6
-    0, // Register 7
-    0  // Register 8
+    0 // RAM read value
 };
-
-mapperHuC3RTC gbRTCHuC3 = {
-    0, // lastTime
-    0, // DateTime
-    0, // WritingTime
-    0, // ModeFlag
-    0, // ClockShift
-    { 0 }
-};
-
-void memoryUpdateHuC3Latch() {
-	uint64_t now = time(NULL);
-    uint64_t diff = now - gbRTCHuC3.mapperLastTime;
-    unsigned minute = (diff / 60) % 1440;
-    unsigned day = (diff / 86400) & 0xFFF;
-
-    gbRTCHuC3.mapperDateTime = (day << 12) | minute;
-}
-
-void memoryUpdateHuC3Clock() {
-    uint64_t now = time(NULL);
-    unsigned minute = (gbRTCHuC3.mapperWritingTime & 0xFFF) % 1440;
-    unsigned day = (gbRTCHuC3.mapperWritingTime & 0xFFF000) >> 12;
-
-    gbRTCHuC3.mapperLastTime = now - minute * 60 - day * 86400;
-}
 
 // HuC3 ROM write registers
 void mapperHuC3ROM(uint16_t address, uint8_t value)
@@ -1095,7 +1052,7 @@ uint8_t mapperHuC3ReadRAM(uint16_t address)
 // HuC3 RAM write
 void mapperHuC3RAM(uint16_t address, uint8_t value)
 {
-    //int* p;
+    int* p;
 
     if (gbDataHuC3.mapperRAMFlag < 0x0b || gbDataHuC3.mapperRAMFlag > 0x0e) {
         if (gbDataHuC3.mapperRAMEnable) {
@@ -1106,49 +1063,25 @@ void mapperHuC3RAM(uint16_t address, uint8_t value)
         }
     } else {
         if (gbDataHuC3.mapperRAMFlag == 0x0b) {
-            //if (value == 0x62) {
-                //gbDataHuC3.mapperRAMValue = 1;
-            //} else
-            {
+            if (value == 0x62) {
+                gbDataHuC3.mapperRAMValue = 1;
+            } else {
                 switch (value & 0xf0) {
                 case 0x10:
-                    /*p = &gbDataHuC3.mapperRegister2;
+                    p = &gbDataHuC3.mapperRegister2;
                     gbDataHuC3.mapperRAMValue = *(p + gbDataHuC3.mapperRegister1++);
                     if (gbDataHuC3.mapperRegister1 > 6)
-                        gbDataHuC3.mapperRegister1 = 0;*/
-
-                    // read time
-                    memoryUpdateHuC3Latch();
-                    if (gbRTCHuC3.memoryTimerRead) {
-                        gbDataHuC3.mapperRAMValue = (gbRTCHuC3.mapperDateTime >> gbRTCHuC3.mapperClockShift) & 0x0F;
-                        gbRTCHuC3.mapperClockShift += 4;
-                        if (gbRTCHuC3.mapperClockShift > 24)
-                            gbRTCHuC3.mapperClockShift = 0;
-                    }
+                        gbDataHuC3.mapperRegister1 = 0;
                     break;
                 case 0x30:
-                    /*p = &gbDataHuC3.mapperRegister2;
+                    p = &gbDataHuC3.mapperRegister2;
                     *(p + gbDataHuC3.mapperRegister1++) = value & 0x0f;
                     if (gbDataHuC3.mapperRegister1 > 6)
                         gbDataHuC3.mapperRegister1 = 0;
-                    gbDataHuC3.mapperAddress = (gbDataHuC3.mapperRegister6 << 24) | (gbDataHuC3.mapperRegister5 << 16) | (gbDataHuC3.mapperRegister4 << 8) | (gbDataHuC3.mapperRegister3 << 4) | (gbDataHuC3.mapperRegister2);*/
-
-                    // write time
-                    if (!gbRTCHuC3.memoryTimerRead) {
-                        if (gbRTCHuC3.mapperClockShift == 0)
-                            gbRTCHuC3.mapperWritingTime = 0;
-                        if (gbRTCHuC3.mapperClockShift < 24) {
-                            gbRTCHuC3.mapperWritingTime |= (value & 0x0F) << gbRTCHuC3.mapperClockShift;
-                            gbRTCHuC3.mapperClockShift += 4;
-                            if (gbRTCHuC3.mapperClockShift == 24) {
-                                memoryUpdateHuC3Clock();
-                                gbRTCHuC3.memoryTimerRead = 1;
-                            }
-                        }
-                    }
+                    gbDataHuC3.mapperAddress = (gbDataHuC3.mapperRegister6 << 24) | (gbDataHuC3.mapperRegister5 << 16) | (gbDataHuC3.mapperRegister4 << 8) | (gbDataHuC3.mapperRegister3 << 4) | (gbDataHuC3.mapperRegister2);
                     break;
                 case 0x40:
-                    /*gbDataHuC3.mapperRegister1 = (gbDataHuC3.mapperRegister1 & 0xf0) | (value & 0x0f);
+                    gbDataHuC3.mapperRegister1 = (gbDataHuC3.mapperRegister1 & 0xf0) | (value & 0x0f);
                     gbDataHuC3.mapperRegister2 = (gbDataHuC3.mapperAddress & 0x0f);
                     gbDataHuC3.mapperRegister3 = ((gbDataHuC3.mapperAddress >> 4) & 0x0f);
                     gbDataHuC3.mapperRegister4 = ((gbDataHuC3.mapperAddress >> 8) & 0x0f);
@@ -1156,35 +1089,13 @@ void mapperHuC3RAM(uint16_t address, uint8_t value)
                     gbDataHuC3.mapperRegister6 = ((gbDataHuC3.mapperAddress >> 24) & 0x0f);
                     gbDataHuC3.mapperRegister7 = 0;
                     gbDataHuC3.mapperRegister8 = 0;
-                    gbDataHuC3.mapperRAMValue = 0;*/
-
-                    // some kind of mode shift
-                    switch(value & 0x0F) {
-                    case 0x0:
-                        // shift reset?
-                        gbRTCHuC3.mapperClockShift = 0;
-                        break;
-                    case 0x3:
-                        // write time?
-                        gbRTCHuC3.memoryTimerRead = 0;
-                        gbRTCHuC3.mapperClockShift = 0;
-                        break;
-                    case 0x7:
-                        gbRTCHuC3.memoryTimerRead = 1;
-                        gbRTCHuC3.mapperClockShift = 0;
-                        break;
-                        // others are unimplemented so far
-                    }
+                    gbDataHuC3.mapperRAMValue = 0;
                     break;
                 case 0x50:
-                    //gbDataHuC3.mapperRegister1 = (gbDataHuC3.mapperRegister1 & 0x0f) | ((value << 4) & 0x0f);
-                    break;
-                case 0x60:
-                    gbRTCHuC3.memoryTimerRead = 1; // ???
-                    //gbDataHuC3.mapperRAMValue = 1;
+                    gbDataHuC3.mapperRegister1 = (gbDataHuC3.mapperRegister1 & 0x0f) | ((value << 4) & 0x0f);
                     break;
                 default:
-                    //gbDataHuC3.mapperRAMValue = 1;
+                    gbDataHuC3.mapperRAMValue = 1;
                     break;
                 }
             }
@@ -1255,7 +1166,7 @@ mapperTAMA5 gbDataTAMA5 = {
     0, // timer latched months
     0, // timer latched years
     0, // timer latched control
-    {(time_t)-1} // last time
+    (time_t)-1 // last time
 };
 
 void memoryUpdateTAMA5Clock()

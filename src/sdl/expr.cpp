@@ -1530,7 +1530,6 @@ yyreturn:
 
 int yyerror(const char* s)
 {
-    (void)s; // unused params
     return 0;
 }
 

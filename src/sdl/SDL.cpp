@@ -41,7 +41,7 @@
 
 #include <time.h>
 
-#include "../common/version_cpp.h"
+#include "version.h"
 
 #include "SDL.h"
 
@@ -64,27 +64,13 @@
 #include "inputSDL.h"
 #include "text.h"
 
-// from: https://stackoverflow.com/questions/7608714/why-is-my-pointer-not-null-after-free
-#define freeSafe(ptr) free(ptr); ptr = NULL;
-
 #ifndef _WIN32
 #include <unistd.h>
 #define GETCWD getcwd
 #else // _WIN32
 #include <direct.h>
-#include <io.h>
 #define GETCWD _getcwd
 #define snprintf sprintf
-#define stat _stat
-#define access _access
-#ifndef W_OK
-    #define W_OK 2
-#endif
-#define mkdir(X,Y) (_mkdir(X))
-// from: https://www.linuxquestions.org/questions/programming-9/porting-to-win32-429334/
-#ifndef S_ISDIR
-    #define S_ISDIR(mode)  (((mode) & _S_IFMT) == _S_IFDIR)
-#endif
 #endif // _WIN32
 
 #ifndef __GNUC__
@@ -216,8 +202,6 @@ int sdlMirroringEnable = 1;
 void systemConsoleMessage(const char*);
 
 char* home;
-char homeConfigDir[1024];
-char homeDataDir[1024];
 
 char screenMessageBuffer[21];
 uint32_t screenMessageTime = 0;
@@ -262,7 +246,7 @@ void StartLirc(void)
         fprintf(stdout, "Success\n");
         //read the config file
         char LIRCConfigLoc[2048];
-        sprintf(LIRCConfigLoc, "%s%c%s", homeConfigDir, FILE_SEP, "lircrc");
+        sprintf(LIRCConfigLoc, "%s/%s/%s", homeDir, DOT_DIR, "lircrc");
         fprintf(stdout, "LIRC Config file:");
         if (lirc_readconfig(LIRCConfigLoc, &LIRCConfigInfo, NULL) == 0) {
             //check vbam dir for lircrc
@@ -300,53 +284,59 @@ void StopLirc(void)
 
 bool sdlCheckDirectory(const char* dir)
 {
+    bool res = false;
+
+    if (!dir || !dir[0]) {
+        return false;
+    }
+
     struct stat buf;
 
-    if (!dir || !dir[0])
-        return false;
+    int len = strlen(dir);
 
-    if (stat(dir, &buf) == 0)
-    {
-        if (!(buf.st_mode & S_IFDIR))
-        {
+    char* p = (char*)dir + len - 1;
+
+    while (p != dir && (*p == '/' || *p == '\\')) {
+        *p = 0;
+        p--;
+    }
+
+    if (stat(dir, &buf) == 0) {
+        if (!(buf.st_mode & S_IFDIR)) {
             fprintf(stderr, "Error: %s is not a directory\n", dir);
-            return false;
         }
-        return true;
-    }
-    else
-    {
+        res = true;
+    } else {
         fprintf(stderr, "Error: %s does not exist\n", dir);
-        return false;
     }
+
+    return res;
 }
 
-char* sdlGetFilename(const char* name)
+char* sdlGetFilename(char* name)
 {
-    char path[1024];
-    const char *filename = strrchr(name, FILE_SEP);
-    if (filename)
-        strcpy(path, filename + 1);
+    static char filebuffer[2048];
+
+    int len = strlen(name);
+
+    char* p = name + len - 1;
+
+    while (true) {
+        if (*p == '/' || *p == '\\') {
+            p++;
+            break;
+        }
+        len--;
+        p--;
+        if (len == 0)
+            break;
+    }
+
+    if (len == 0)
+        strcpy(filebuffer, name);
     else
-        strcpy(path, name);
-    return strdup(path);
-}
-
-char* sdlGetFilePath(const char* name)
-{
-    char path[1024];
-    const char *filename = strrchr(name, FILE_SEP);
-    if (filename) {
-        size_t length = strlen(name) - strlen(filename);
-        memcpy(path, name, length);
-        path[length] = '\0';
-    }
-    else {
-        path[0] = '.';
-        path[1] = FILE_SEP;
-        path[2] = '\0';
-    }
-    return strdup(path);
+        strcpy(filebuffer, p);
+    return filebuffer;
 }
 
 FILE* sdlFindFile(const char* name)
@@ -366,7 +356,7 @@ FILE* sdlFindFile(const char* name)
 
     fprintf(stdout, "Searching for file %s\n", name);
 
-    if (GETCWD(buffer, sizeof(buffer))) {
+    if (GETCWD(buffer, 2048)) {
         fprintf(stdout, "Searching current directory: %s\n", buffer);
     }
 
@@ -375,19 +365,19 @@ FILE* sdlFindFile(const char* name)
         return f;
     }
 
-    if (homeDataDir) {
-        fprintf(stdout, "Searching home directory: %s\n", homeDataDir);
-        sprintf(path, "%s%c%s", homeDataDir, FILE_SEP, name);
+    if (homeDir) {
+        fprintf(stdout, "Searching home directory: %s%c%s\n", homeDir, FILE_SEP, DOT_DIR);
+        sprintf(path, "%s%c%s%c%s", homeDir, FILE_SEP, DOT_DIR, FILE_SEP, name);
         f = fopen(path, "r");
         if (f != NULL)
             return f;
     }
 
 #ifdef _WIN32
-    char* profileDir = getenv("USERPROFILE");
-    if (profileDir != NULL) {
-        fprintf(stdout, "Searching user profile directory: %s\n", profileDir);
-        sprintf(path, "%s%c%s", profileDir, FILE_SEP, name);
+    char* home = getenv("USERPROFILE");
+    if (home != NULL) {
+        fprintf(stdout, "Searching user profile directory: %s\n", home);
+        sprintf(path, "%s%c%s", home, FILE_SEP, name);
         f = fopen(path, "r");
         if (f != NULL)
             return f;
@@ -398,8 +388,8 @@ FILE* sdlFindFile(const char* name)
 
         if (path != NULL) {
             fprintf(stdout, "Searching PATH\n");
-            strncpy(buffer, path, sizeof(buffer));
-            buffer[sizeof(buffer) - 1] = 0;
+            strncpy(buffer, path, 4096);
+            buffer[4095] = 0;
             char* tok = strtok(buffer, PATH_SEP);
 
             while (tok) {
@@ -477,7 +467,7 @@ static void sdlOpenGLVideoResize()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
         openGL == 2 ? GL_LINEAR : GL_NEAREST);
 
-    // Calculate texture size as the smallest working power of two
+    // Calculate texture size as a the smallest working power of two
     float n1 = log10((float)destWidth) / log10(2.0f);
     float n2 = log10((float)destHeight) / log10(2.0f);
     float n = (n1 > n2) ? n1 : n2;
@@ -498,11 +488,28 @@ static void sdlOpenGLVideoResize()
 
 void sdlOpenGLInit(int w, int h)
 {
-    (void)w; // unused params
-    (void)h; // unused params
 
+#if 0
+  float screenAspect = (float) sizeX / sizeY,
+        windowAspect = (float) w / h;
+
+  if(glIsTexture(screenTexture))
+  glDeleteTextures(1, &screenTexture);
+#endif
     glDisable(GL_CULL_FACE);
     glEnable(GL_TEXTURE_2D);
+
+#if 0
+  if(windowAspect == screenAspect)
+    glViewport(0, 0, w, h);
+  else if (windowAspect < screenAspect) {
+    int height = (int)(w / screenAspect);
+    glViewport(0, (h - height) / 2, w, height);
+  } else {
+    int width = (int)(h * screenAspect);
+    glViewport((w - width) / 2, 0, width, h);
+  }
+#endif
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -511,6 +518,30 @@ void sdlOpenGLInit(int w, int h)
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
+
+#if 0
+  glGenTextures(1, &screenTexture);
+  glBindTexture(GL_TEXTURE_2D, screenTexture);
+
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+                  openGL == 2 ? GL_LINEAR : GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                  openGL == 2 ? GL_LINEAR : GL_NEAREST);
+
+  // Calculate texture size as a the smallest working power of two
+  float n1 = log10((float)destWidth ) / log10( 2.0f);
+  float n2 = log10((float)destHeight ) / log10( 2.0f);
+  float n = (n1 > n2)? n1 : n2;
+
+    // round up
+  if (((float)((int)n)) != n)
+    n = ((float)((int)n)) + 1.0f;
+
+  textureSize = (int)pow(2.0f, n);
+
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, textureSize, textureSize, 0,
+               GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+#endif
 
     glClearColor(0.0, 0.0, 0.0, 1.0);
 
@@ -623,18 +654,15 @@ static int sdlCalculateShift(uint32_t mask)
 static char* sdlStateName(int num)
 {
     static char stateName[2048];
-    char *gameDir = sdlGetFilePath(filename);
-    char *gameFile = sdlGetFilename(filename);
 
     if (saveDir)
-        sprintf(stateName, "%s%c%s%d.sgm", saveDir, FILE_SEP, gameFile, num + 1);
-    else if (access(gameDir, W_OK) == 0)
-        sprintf(stateName, "%s%c%s%d.sgm", gameDir, FILE_SEP, gameFile, num + 1);
+        sprintf(stateName, "%s/%s%d.sgm", saveDir, sdlGetFilename(filename),
+            num + 1);
+    else if (homeDir)
+        sprintf(stateName, "%s/%s/%s%d.sgm", homeDir, DOT_DIR, sdlGetFilename(filename), num + 1);
     else
-        sprintf(stateName, "%s%c%s%d.sgm", homeDataDir, FILE_SEP, gameFile, num + 1);
+        sprintf(stateName, "%s%d.sgm", filename, num + 1);
 
-    freeSafe(gameDir);
-    freeSafe(gameFile);
     return stateName;
 }
 
@@ -725,56 +753,45 @@ void sdlWriteBackupStateExchange(int from, int to, int backup)
 
 void sdlWriteBattery()
 {
-    char buffer[2048];
-    char *gameDir = sdlGetFilePath(filename);
-    char *gameFile = sdlGetFilename(filename);
+    char buffer[1048];
 
     if (batteryDir)
-        sprintf(buffer, "%s%c%s.sav", batteryDir, FILE_SEP, gameFile);
-    else if (access(gameDir, W_OK) == 0)
-        sprintf(buffer, "%s%c%s.sav", gameDir, FILE_SEP, gameFile);
+        sprintf(buffer, "%s/%s.sav", batteryDir, sdlGetFilename(filename));
+    else if (homeDir)
+        sprintf(buffer, "%s/%s/%s.sav", homeDir, DOT_DIR, sdlGetFilename(filename));
     else
-        sprintf(buffer, "%s%c%s.sav", homeDataDir, FILE_SEP, gameFile);
+        sprintf(buffer, "%s.sav", filename);
 
-    bool result = emulator.emuWriteBattery(buffer);
+    emulator.emuWriteBattery(buffer);
 
-    if (result)
-        systemMessage(0, "Wrote battery '%s'", buffer);
-
-    freeSafe(gameFile);
-    freeSafe(gameDir);
+    systemScreenMessage("Wrote battery");
 }
 
 void sdlReadBattery()
 {
-    char buffer[2048];
-    char *gameDir = sdlGetFilePath(filename);
-    char *gameFile = sdlGetFilename(filename);
+    char buffer[1048];
 
     if (batteryDir)
-        sprintf(buffer, "%s%c%s.sav", batteryDir, FILE_SEP, gameFile);
-    else if (access(gameDir, W_OK) == 0)
-        sprintf(buffer, "%s%c%s.sav", gameDir, FILE_SEP, gameFile);
+        sprintf(buffer, "%s/%s.sav", batteryDir, sdlGetFilename(filename));
+    else if (homeDir)
+        sprintf(buffer, "%s/%s/%s.sav", homeDir, DOT_DIR, sdlGetFilename(filename));
     else
-        sprintf(buffer, "%s%c%s.sav", homeDataDir, FILE_SEP, gameFile);
+        sprintf(buffer, "%s.sav", filename);
 
-    bool result = emulator.emuReadBattery(buffer);
+    bool res = false;
 
-    if (result)
-        systemMessage(0, "Loaded battery '%s'", buffer);
+    res = emulator.emuReadBattery(buffer);
 
-    freeSafe(gameFile);
-    freeSafe(gameDir);
+    if (res)
+        systemScreenMessage("Loaded battery");
 }
 
 void sdlReadDesktopVideoMode()
 {
-    if (window) {
-        SDL_DisplayMode dm;
-        SDL_GetDesktopDisplayMode(SDL_GetWindowDisplayIndex(window), &dm);
-        desktopWidth = dm.w;
-        desktopHeight = dm.h;
-    }
+    SDL_DisplayMode dm;
+    SDL_GetDesktopDisplayMode(SDL_GetWindowDisplayIndex(window), &dm);
+    desktopWidth = dm.w;
+    desktopHeight = dm.h;
 }
 
 static void sdlResizeVideo()
@@ -849,6 +866,24 @@ void sdlInitVideo()
 
     uint32_t rmask, gmask, bmask;
 
+#if 0
+  if(openGL) {
+#if SDL_BYTEORDER == SDL_LIL_ENDIAN /* OpenGL RGBA masks */
+      rmask = 0x000000FF;
+      gmask = 0x0000FF00;
+      bmask = 0x00FF0000;
+#else
+      rmask = 0xFF000000;
+      gmask = 0x00FF0000;
+      bmask = 0x0000FF00;
+#endif
+  } else {
+      rmask = surface->format->Rmask;
+      gmask = surface->format->Gmask;
+      bmask = surface->format->Bmask;
+  }
+#endif
+
     if (openGL) {
         rmask = 0xFF000000;
         gmask = 0x00FF0000;
@@ -874,6 +909,36 @@ void sdlInitVideo()
         systemBlueShift += 8;
     }
 
+#if 0
+  if (openGL) {
+    systemColorDepth = 0;
+    int i;
+    glcontext = SDL_GL_CreateContext(window);
+    SDL_GL_GetAttribute(SDL_GL_RED_SIZE, &i);
+    systemColorDepth += i;
+    SDL_GL_GetAttribute(SDL_GL_GREEN_SIZE, &i);
+    systemColorDepth += i;
+    SDL_GL_GetAttribute(SDL_GL_BLUE_SIZE, &i);
+    systemColorDepth += i;
+    printf("color depth (without alpha) is %d\n", systemColorDepth);
+    SDL_GL_GetAttribute(SDL_GL_ALPHA_SIZE, &i);
+    systemColorDepth += i;
+    printf("color depth is %d\n", systemColorDepth);
+  }
+  else
+    systemColorDepth = 32;
+
+  if(systemColorDepth == 16) {
+    srcPitch = sizeX*2 + 4;
+  } else {
+    if(systemColorDepth == 32)
+      srcPitch = sizeX*4 + 4;
+    else
+      srcPitch = sizeX*3;
+  }
+
+#endif
+
     systemColorDepth = 32;
     srcPitch = sizeX * 4 + 4;
 
@@ -883,9 +948,34 @@ void sdlInitVideo()
     }
 
     sdlResizeVideo();
-}
 
-#ifndef KMOD_META
+#if 0
+  if(openGL) {
+    int scaledWidth = screenWidth * sdlOpenglScale;
+    int scaledHeight = screenHeight * sdlOpenglScale;
+
+    free(filterPix);
+    filterPix = (uint8_t *)calloc(1, (systemColorDepth >> 3) * destWidth * destHeight);
+    sdlOpenGLInit(screenWidth, screenHeight);
+
+    if (	(!fullScreen)
+	&&	sdlOpenglScale	> 1
+	&&	scaledWidth	< desktopWidth
+	&&	scaledHeight	< desktopHeight
+    ) {
+        SDL_SetVideoMode(scaledWidth, scaledHeight, 0,
+                       SDL_OPENGL | SDL_RESIZABLE |
+                       (fullScreen ? SDL_FULLSCREEN : 0));
+        sdlOpenGLInit(scaledWidth, scaledHeight);
+	/* xKiv: it would seem that SDL_RESIZABLE causes the *previous* dimensions to be immediately
+	 * reported back via the SDL_VIDEORESIZE event
+	 */
+	ignore_first_resize_event	= 1;
+    }
+  }
+#endif
+}
+#if defined(KMOD_GUI)
 #define KMOD_META KMOD_GUI
 #endif
 
@@ -1017,6 +1107,41 @@ void sdlPollEvents()
         case SDL_QUIT:
             emulating = 0;
             break;
+#if 0
+    case SDL_VIDEORESIZE:
+      if (ignore_first_resize_event)
+      {
+	      ignore_first_resize_event	= 0;
+	      break;
+      }
+      if (openGL)
+      {
+        SDL_SetVideoMode(event.resize.w, event.resize.h, 0,
+                       SDL_OPENGL | SDL_RESIZABLE |
+					   (fullScreen ? SDL_FULLSCREEN : 0));
+        sdlOpenGLInit(event.resize.w, event.resize.h);
+      }
+      break;
+    case SDL_ACTIVEEVENT:
+      if(pauseWhenInactive && (event.active.state & SDL_APPINPUTFOCUS)) {
+        active = event.active.gain;
+        if(active) {
+          if(!paused) {
+            if(emulating)
+              soundResume();
+          }
+        } else {
+          wasPaused = true;
+          if(pauseWhenInactive) {
+            if(emulating)
+              soundPause();
+          }
+
+          memset(delta,255,delta_size);
+        }
+      }
+      break;
+#endif
         case SDL_WINDOWEVENT:
             switch (event.window.event) {
             case SDL_WINDOWEVENT_FOCUS_GAINED:
@@ -1512,30 +1637,12 @@ void handleRewinds()
     }
 }
 
-void SetHomeConfigDir()
-{
-    sprintf(homeConfigDir, "%s%s", get_xdg_user_config_home().c_str(), DOT_DIR);
-    struct stat s;
-    if (stat(homeDataDir, &s) == -1 || !S_ISDIR(s.st_mode))
-        mkdir(homeDataDir, 0755);
-}
-
-void SetHomeDataDir()
-{
-    sprintf(homeDataDir, "%s%s", get_xdg_user_data_home().c_str(), DOT_DIR);
-    struct stat s;
-    if (stat(homeDataDir, &s) == -1 || !S_ISDIR(s.st_mode))
-        mkdir(homeDataDir, 0755);
-}
-
 int main(int argc, char** argv)
 {
-    fprintf(stdout, "%s\n", vba_name_and_subversion);
+    fprintf(stdout, "%s\n", VBA_NAME_AND_SUBVERSION);
 
     home = argv[0];
     SetHome(home);
-    SetHomeConfigDir();
-    SetHomeDataDir();
 
     frameSkip = 2;
     gbBorderOn = 0;
@@ -1546,9 +1653,6 @@ int main(int argc, char** argv)
     gb_effects_config.echo = 0.0;
     gb_effects_config.surround = false;
     gb_effects_config.enabled = false;
-
-    LoadConfig(); // Parse command line arguments (overrides ini)
-    ReadOpts(argc, argv);
 
     inputSetKeymap(PAD_1, KEY_LEFT, ReadPrefHex("Joy0_Left"));
     inputSetKeymap(PAD_1, KEY_RIGHT, ReadPrefHex("Joy0_Right"));
@@ -1611,6 +1715,9 @@ int main(int argc, char** argv)
     inputSetMotionKeymap(KEY_UP, ReadPrefHex("Motion_Up"));
     inputSetMotionKeymap(KEY_DOWN, ReadPrefHex("Motion_Down"));
 
+    LoadConfig(); // Parse command line arguments (overrides ini)
+    ReadOpts(argc, argv);
+
     if (!sdlCheckDirectory(screenShotDir))
         screenShotDir = NULL;
     if (!sdlCheckDirectory(saveDir))
@@ -1654,12 +1761,6 @@ int main(int argc, char** argv)
             // no patch given yet - look for ROMBASENAME.ups
             tmp = (char*)malloc(strlen(filename) + 4 + 1);
             sprintf(tmp, "%s.ups", filename);
-            patchNames[patchNum] = tmp;
-            patchNum++;
-
-            // no patch given yet - look for ROMBASENAME.bps
-            tmp = (char*)malloc(strlen(filename) + 4 + 1);
-            sprintf(tmp, "%s.bps", filename);
             patchNames[patchNum] = tmp;
             patchNum++;
 
@@ -1923,7 +2024,6 @@ int main(int argc, char** argv)
 
 void systemMessage(int num, const char* msg, ...)
 {
-    (void)num; // unused params
     va_list valist;
 
     va_start(valist, msg);
@@ -2027,10 +2127,6 @@ void systemDrawScreen()
     }
 }
 
-void systemSendScreen()
-{
-}
-
 void systemSetTitle(const char* title)
 {
     SDL_SetWindowTitle(window, title);
@@ -2112,35 +2208,27 @@ void system10Frames(int rate)
 void systemScreenCapture(int a)
 {
     char buffer[2048];
-    bool result = false;
-    char *gameDir = sdlGetFilePath(filename);
-    char *gameFile = sdlGetFilename(filename);
 
     if (captureFormat) {
         if (screenShotDir)
-            sprintf(buffer, "%s%c%s%02d.bmp", screenShotDir, FILE_SEP, gameFile, a);
-        else if (access(gameDir, W_OK) == 0)
-            sprintf(buffer, "%s%c%s%02d.bmp", gameDir, FILE_SEP, gameFile, a);
+            sprintf(buffer, "%s/%s%02d.bmp", screenShotDir, sdlGetFilename(filename), a);
+        else if (homeDir)
+            sprintf(buffer, "%s/%s/%s%02d.bmp", homeDir, DOT_DIR, sdlGetFilename(filename), a);
         else
-            sprintf(buffer, "%s%c%s%02d.bmp", homeDataDir, FILE_SEP, gameFile, a);
+            sprintf(buffer, "%s%02d.bmp", filename, a);
 
-        result = emulator.emuWriteBMP(buffer);
+        emulator.emuWriteBMP(buffer);
     } else {
         if (screenShotDir)
-            sprintf(buffer, "%s%c%s%02d.png", screenShotDir, FILE_SEP, gameFile, a);
-        else if (access(gameDir, W_OK) == 0)
-            sprintf(buffer, "%s%c%s%02d.png", gameDir, FILE_SEP, gameFile, a);
+            sprintf(buffer, "%s/%s%02d.png", screenShotDir, sdlGetFilename(filename), a);
+        else if (homeDir)
+            sprintf(buffer, "%s/%s/%s%02d.png", homeDir, DOT_DIR, sdlGetFilename(filename), a);
         else
-            sprintf(buffer, "%s%c%s%02d.png", homeDataDir, FILE_SEP, gameFile, a);
-
-        result = emulator.emuWritePNG(buffer);
+            sprintf(buffer, "%s%02d.png", filename, a);
+        emulator.emuWritePNG(buffer);
     }
 
-    if (result)
-        systemScreenMessage("Screen capture");
-
-    freeSafe(gameFile);
-    freeSafe(gameDir);
+    systemScreenMessage("Screen capture");
 }
 
 void systemSaveOldest()
@@ -2160,12 +2248,6 @@ uint32_t systemGetClock()
 
 void systemGbPrint(uint8_t* data, int len, int pages, int feed, int palette, int contrast)
 {
-    (void)data; // unused params
-    (void)len; // unused params
-    (void)pages; // unused params
-    (void)feed; // unused params
-    (void)palette; // unused params
-    (void)contrast; // unused params
 }
 
 /* xKiv: added timestamp */
@@ -2288,8 +2370,6 @@ void systemOnSoundShutdown()
 
 void systemOnWriteDataToSoundBuffer(const uint16_t* finalWave, int length)
 {
-    (void)finalWave; // unused params
-    (void)length; // unused params
 }
 
 void log(const char* defaultMsg, ...)

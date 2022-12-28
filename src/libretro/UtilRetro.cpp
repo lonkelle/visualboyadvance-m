@@ -2,8 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <libretro.h>
-
 #include "NLS.h"
 #include "System.h"
 #include "Util.h"
@@ -43,6 +41,31 @@ bool cpuIsMultiBoot      = false;
 const char* loadDotCodeFile;
 const char* saveDotCodeFile;
 
+extern int systemColorDepth;
+extern int systemRedShift;
+extern int systemGreenShift;
+extern int systemBlueShift;
+
+extern uint16_t systemColorMap16[0x10000];
+extern uint32_t systemColorMap32[0x10000];
+
+const char gb_image_header[] =
+{
+   static_cast<const char>
+   (
+      0xce, 0xed, 0x66, 0x66, 0xcc, 0x0d, 0x00, 0x0b, 0x03, 0x73, 0x00,
+      0x83, 0x00, 0x0c, 0x00, 0x0d, 0x00, 0x08, 0x11, 0x1f, 0x88, 0x89,
+      0x00, 0x0e, 0xdc, 0xcc, 0x6e, 0xe6, 0xdd, 0xdd, 0xd9, 0x99, 0xbb,
+      0xbb, 0x67, 0x63, 0x6e, 0x0e, 0xec, 0xcc, 0xdd, 0xdc, 0x99, 0x9f,
+      0xbb, 0xb9, 0x33, 0x3e
+   )
+};
+
+bool utilWritePNGFile(const char* fileName, int w, int h, uint8_t* pix)
+{
+    return false;
+}
+
 void utilPutDword(uint8_t* p, uint32_t value)
 {
     *p++ = value & 255;
@@ -55,6 +78,11 @@ void utilPutWord(uint8_t* p, uint16_t value)
 {
     *p++ = value & 255;
     *p = (value >> 8) & 255;
+}
+
+bool utilWriteBMPFile(const char* fileName, int w, int h, uint8_t* pix)
+{
+    return false;
 }
 
 extern bool cpuIsMultiBoot;
@@ -80,6 +108,21 @@ bool utilIsGBAImage(const char* file)
 
 bool utilIsGBImage(const char* file)
 {
+/*
+	FILE *fp;
+	bool ret = false;
+	char buffer[47];
+	if (!file || !(fp = fopen (file, "r")))		//TODO more checks here (does file exist, is it a file, a symlink or a blockdevice)
+		return ret;
+	fseek (fp, 0, SEEK_END);
+	if (ftell (fp) >= 0x8000) {			//afaik there can be no gb-rom smaller than this
+		fseek (fp, 0x104, SEEK_SET);
+		fread (buffer, sizeof (char), 47, fp);
+		ret = !memcmp (buffer, gb_image_header, 47);
+	}
+	fclose (fp);
+	return ret;
+*/
     if (strlen(file) > 4) {
         const char *p = strrchr(file, '.');
 
@@ -95,59 +138,63 @@ bool utilIsGBImage(const char* file)
     return false;
 }
 
+// strip .gz or .z off end
+void utilStripDoubleExtension(const char* file, char* buffer)
+{
+    if (buffer != file) // allows conversion in place
+        strcpy(buffer, file);
+}
+
+static bool utilIsImage(const char* file)
+{
+    return utilIsGBAImage(file) || utilIsGBImage(file);
+}
+
 IMAGE_TYPE utilFindType(const char* file)
 {
-    if (utilIsGBAImage(file))
-        return IMAGE_GBA;
-
-    if (utilIsGBImage(file))
-        return IMAGE_GB;
-
-    return IMAGE_UNKNOWN;
+    //char buffer[2048];
+    if (!utilIsImage(file)) // TODO: utilIsArchive() instead?
+    {
+        return IMAGE_UNKNOWN;
+    }
+    return utilIsGBAImage(file) ? IMAGE_GBA : IMAGE_GB;
 }
 
 static int utilGetSize(int size)
 {
-    int res = 1;
-    while(res < size)
-        res <<= 1;
-    return res;
+  int res = 1;
+  while(res < size)
+    res <<= 1;
+  return res;
 }
 
 uint8_t *utilLoad(const char *file, bool (*accept)(const char *), uint8_t *data, int &size)
 {
-    FILE *fp = NULL;
+	FILE *fp = NULL;
+	//char *buf = NULL;
 
-    fp = fopen(file,"rb");
-    if (!fp)
-    {
-        log("Failed to open file %s", file);
-        return NULL;
-    }
-    fseek(fp, 0, SEEK_END); //go to end
+	fp = fopen(file,"rb");
+	if(!fp) return NULL;
+	fseek(fp, 0, SEEK_END); //go to end
+	size = ftell(fp); // get position at end (length)
+	rewind(fp);
 
-    size = ftell(fp); // get position at end (length)
-    rewind(fp);
+	uint8_t *image = data;
+	if(image == NULL)
+	{
+		//allocate buffer memory if none was passed to the function
+		image = (uint8_t *)malloc(utilGetSize(size));
+		if(image == NULL)
+		{
+			systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
+					"data");
+			return NULL;
+		}
+	}
 
-    uint8_t *image = data;
-    if(image == NULL)
-    {
-        image = (uint8_t *)malloc(utilGetSize(size));
-        if(image == NULL)
-        {
-            log("Failed to allocate memory for %s", file);
-            return NULL;
-        }
-    }
-
-    if (fread(image, 1, size, fp) != (size_t)size) {
-        log("Failed to read from %s", file);
-        fclose(fp);
-        return NULL;
-    }
-
-    fclose(fp);
-    return image;
+   fread(image, 1, size, fp); // read into buffer
+	fclose(fp);
+	return image;
 }
 
 void utilGBAFindSave(const int size)
@@ -200,10 +247,12 @@ void utilGBAFindSave(const int size)
         p++;
     }
     // if no matches found, then set it to NONE
-    if (detectedSaveType == 0)
+    if (detectedSaveType == 0) {
         detectedSaveType = 5;
-    if (detectedSaveType == 4)
+    }
+    if (detectedSaveType == 4) {
         detectedSaveType = 3;
+    }
 
     cpuSaveType = detectedSaveType;
     rtcEnabled = rtcFound_;
@@ -212,28 +261,30 @@ void utilGBAFindSave(const int size)
 
 void utilUpdateSystemColorMaps(bool lcd)
 {
-    int i = 0;
-
     switch (systemColorDepth) {
-        case 16:
-            for (i = 0; i < 0x10000; i++) {
-                systemColorMap16[i] = ((i & 0x1f) << systemRedShift) |
-                    (((i & 0x3e0) >> 5) << systemGreenShift) |
-                    (((i & 0x7c00) >> 10) << systemBlueShift);
-                }
-                if (lcd)
-                    gbafilter_pal(systemColorMap16, 0x10000);
-            break;
-        case 24:
-        case 32:
-            for (i = 0; i < 0x10000; i++) {
-                systemColorMap32[i] = ((i & 0x1f) << systemRedShift) |
-                    (((i & 0x3e0) >> 5) << systemGreenShift) |
-                    (((i & 0x7c00) >> 10) << systemBlueShift);
-                }
-                if (lcd)
-                    gbafilter_pal32(systemColorMap32, 0x10000);
-            break;
+    case 16: {
+        for (int i = 0; i < 0x10000; i++) {
+            systemColorMap16[i] = ((i & 0x1f) << systemRedShift) | (((i & 0x3e0) >> 5) << systemGreenShift) | (((i & 0x7c00) >> 10) << systemBlueShift);
+        }
+    } break;
+    case 24:
+    case 32: {
+        for (int i = 0; i < 0x10000; i++) {
+            systemColorMap32[i] = ((i & 0x1f) << systemRedShift) | (((i & 0x3e0) >> 5) << systemGreenShift) | (((i & 0x7c00) >> 10) << systemBlueShift);
+        }
+    } break;
+    }
+}
+
+// Check for existence of file.
+bool utilFileExists(const char* filename)
+{
+    FILE* f = fopen(filename, "r");
+    if (f == NULL) {
+        return false;
+    } else {
+        fclose(f);
+        return true;
     }
 }
 

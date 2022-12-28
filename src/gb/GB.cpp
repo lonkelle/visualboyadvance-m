@@ -1,5 +1,4 @@
 //#include "../win32/stdafx.h" // would fix LNK2005 linker errors for MSVC
-#include <cmath>
 #include <assert.h>
 #include <memory.h>
 #include <stdio.h>
@@ -11,7 +10,6 @@
 #include "../Util.h"
 #include "../common/ConfigManager.h"
 #include "../gba/GBALink.h"
-#include "../gba/Sound.h"
 #include "gb.h"
 #include "gbCheats.h"
 #include "gbGlobals.h"
@@ -129,7 +127,7 @@ int gbSerialOn = 0;
 int gbSerialTicks = 0;
 int gbSerialBits = 0;
 // timer
-int gbTimerOn = 0;
+bool gbTimerOn = false;
 int gbTimerTicks = GBTIMER_MODE_0_CLOCK_TICKS;
 int gbTimerClockTicks = GBTIMER_MODE_0_CLOCK_TICKS;
 int gbTimerMode = 0;
@@ -195,14 +193,11 @@ uint32_t gbTimeNow = 0;
 int gbSynchronizeTicks = GBSYNCHRONIZE_CLOCK_TICKS;
 // emulator features
 int gbBattery = 0;
-int gbRumble = 0;
-int gbRTCPresent = 0;
 bool gbBatteryError = false;
 int gbCaptureNumber = 0;
 bool gbCapture = false;
 bool gbCapturePrevious = false;
 int gbJoymask[4] = { 0, 0, 0, 0 };
-static bool allow_colorizer_hack;
 
 uint8_t gbRamFill = 0xff;
 
@@ -779,79 +774,6 @@ static const uint16_t gbColorizationPaletteData[32][3][4] = {
 #define GBSAVE_GAME_VERSION_12 12
 #define GBSAVE_GAME_VERSION GBSAVE_GAME_VERSION_12
 
-
-static bool gbCheckRomHeader(void)
-{
-    const uint8_t nlogo[16] = {
-        0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B,
-        0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D
-    };
-
-    // Game Genie
-    if ((gbRom[2] == 0x6D) && (gbRom[5] == 0x47) && (gbRom[6] == 0x65) && (gbRom[7] == 0x6E) &&
-            (gbRom[8] == 0x69) && (gbRom[9] == 0x65) && (gbRom[0xA] == 0x28) && (gbRom[0xB] == 0x54)) {
-        return true;
-
-    // Game Shark
-    } else if (((gbRom[0x104] == 0x44) && (gbRom[0x156] == 0xEA) && (gbRom[0x158] == 0x7F) && (gbRom[0x159] == 0xEA) && (gbRom[0x15B] == 0x7F)) ||
-            ((gbRom[0x165] == 0x3E) && (gbRom[0x166] == 0xD9) && (gbRom[0x16D] == 0xE1) && (gbRom[0x16E] == 0x7F))) {
-        return true;
-
-    // check for 1st 16 bytes of nintendo logo
-    } else {
-        uint8_t header[16];
-        memcpy(header, &gbRom[0x104], 16);
-        if (!memcmp(header, nlogo, 16))
-            return true;
-    }
-    return false;
-}
-
-void setColorizerHack(bool value)
-{
-    allow_colorizer_hack = value;
-}
-
-bool allowColorizerHack(void)
-{
-    if (gbHardware & 0xA)
-        return (allow_colorizer_hack);
-    return false;
-}
-
-static inline bool gbVramReadAccessValid(void)
-{
-    // A lot of 'ugly' checks... But only way to emulate this particular behaviour...
-    if (allowColorizerHack()||
-        ((gbHardware & 0xa) && ((gbLcdModeDelayed != 3) || (((register_LY == 0) && (gbScreenOn == false) && (register_LCDC & 0x80)) && (gbLcdLYIncrementTicksDelayed == (GBLY_INCREMENT_CLOCK_TICKS - GBLCD_MODE_2_CLOCK_TICKS))))) ||
-        ((gbHardware & 0x5) && (gbLcdModeDelayed != 3) && ((gbLcdMode != 3) || ((register_LY == 0) && ((gbScreenOn == false) && (register_LCDC & 0x80)) && (gbLcdLYIncrementTicks == (GBLY_INCREMENT_CLOCK_TICKS - GBLCD_MODE_2_CLOCK_TICKS))))))
-        return true;
-    return false;
-}
-
-static inline bool gbVramWriteAccessValid(void)
-{
-    if (allowColorizerHack() ||
-        // No access to Vram during mode 3
-        // (used to emulate the gfx differences between GB & GBC-GBA/SP in Stunt Racer)
-        (gbLcdModeDelayed != 3) ||
-        // This part is used to emulate a small difference between hardwares
-        // (check 8-in-1's arrow on GBA/GBC to verify it)
-        ((register_LY == 0) && ((gbHardware & 0xa) && (gbScreenOn == false) && (register_LCDC & 0x80)) && (gbLcdLYIncrementTicksDelayed == (GBLY_INCREMENT_CLOCK_TICKS - GBLCD_MODE_2_CLOCK_TICKS))))
-        return true;
-    return false;
-}
-
-static inline bool gbCgbPaletteAccessValid(void)
-{
-    // No access to gbPalette during mode 3 (Color Panel Demo)
-    if (allowColorizerHack() ||
-        ((gbLcdModeDelayed != 3) && (!((gbLcdMode == 0) && (gbLcdTicks >= (GBLCD_MODE_0_CLOCK_TICKS - gbSpritesTicks[299] - 1)))) && (!gbSpeed)) ||
-        (gbSpeed && ((gbLcdMode == 1) || (gbLcdMode == 2) || ((gbLcdMode == 3) && (gbLcdTicks > (GBLCD_MODE_3_CLOCK_TICKS - 2))) || ((gbLcdMode == 0) && (gbLcdTicks <= (GBLCD_MODE_0_CLOCK_TICKS - gbSpritesTicks[299] - 2))))))
-        return true;
-    return false;
-}
-
 int inline gbGetValue(int min, int max, int v)
 {
     return (int)(min + (float)(max - min) * (2.0 * (v / 31.0) - (v / 31.0) * (v / 31.0)));
@@ -976,7 +898,7 @@ void gbCompareLYToLYC()
     }
 }
 
-void gbWriteMemory(uint16_t address, uint8_t value)
+void gbWriteMemory(register uint16_t address, register uint8_t value)
 {
 
     if (address < 0x8000) {
@@ -995,8 +917,12 @@ void gbWriteMemory(uint16_t address, uint8_t value)
     }
 
     if (address < 0xa000) {
-
-        if (gbVramWriteAccessValid())
+        // No access to Vram during mode 3
+        // (used to emulate the gfx differences between GB & GBC-GBA/SP in Stunt Racer)
+        if ((gbLcdModeDelayed != 3) ||
+            // This part is used to emulate a small difference between hardwares
+            // (check 8-in-1's arrow on GBA/GBC to verify it)
+            ((register_LY == 0) && ((gbHardware & 0xa) && (gbScreenOn == false) && (register_LCDC & 0x80)) && (gbLcdLYIncrementTicksDelayed == (GBLY_INCREMENT_CLOCK_TICKS - GBLCD_MODE_2_CLOCK_TICKS))))
             gbMemoryMap[address >> 12][address & 0x0fff] = value;
         return;
     }
@@ -1094,13 +1020,10 @@ void gbWriteMemory(uint16_t address, uint8_t value)
             }
 #endif
         }
-#else
-        gbMemory[0xff02] = value;
-        if (gbSerialOn)
-            gbSerialTicks = GBSERIAL_CLOCK_TICKS;
-#endif
+
         gbSerialBits = 0;
         return;
+#endif
     }
 
     case 0x04: {
@@ -1141,7 +1064,7 @@ void gbWriteMemory(uint16_t address, uint8_t value)
         gbTimerModeChange = (((value & 3) != (register_TAC & 3)) && (value & register_TAC & 4)) ? true : false;
         gbTimerOnChange = (((value ^ register_TAC) & 4) == 4) ? true : false;
 
-        gbTimerOn = (value & 4);
+        gbTimerOn = (value & 4) ? true : false;
 
         if (gbTimerOnChange || gbTimerModeChange) {
             gbTimerMode = value & 3;
@@ -1265,7 +1188,7 @@ void gbWriteMemory(uint16_t address, uint8_t value)
     case 0x3e:
     case 0x3f:
         // Sound registers handled by blargg
-        gbSoundEvent(soundTicks, address, value);
+        gbSoundEvent(address, value);
         //gbMemory[address] = value;
         return;
 
@@ -1345,7 +1268,6 @@ void gbWriteMemory(uint16_t address, uint8_t value)
         //register_STAT = (register_STAT & 0x87) |
         //      (value & 0x7c);
         gbMemory[0xff41] = register_STAT = (value & 0xf8) | (register_STAT & 0x07); // fix ?
-        // TODO:
         // GB bug from Devrs FAQ
         // http://www.devrs.com/gb/files/faqs.html#GBBugs
         // 2018-7-26 Backported STAT register bug behavior
@@ -1356,15 +1278,12 @@ void gbWriteMemory(uint16_t address, uint8_t value)
         // Games below relies on this bug, , and are incompatible with the GBC.
         // - Road Rash: crash after player screen
         // - Zerg no Densetsu: crash right after showing a small portion of intro
-        // - 2019-07-18 - Speedy Gonzalez status bar relies on this as well.
 
         if ((gbHardware & 5)
             && (((!gbInt48Signal) && (gbLcdMode < 2) && (register_LCDC & 0x80))
             || (register_LY == register_LYC))) {
-
-            // send LCD interrupt only if no interrupt 48h signal...
-            if (!gbInt48Signal)
-                gbMemory[0xff0f] = register_IF |= 2;
+            
+            gbMemory[0xff0f] = register_IF |=2;
         }
 
         gbInt48Signal &= ((register_STAT >> 3) & 0xF);
@@ -1386,7 +1305,7 @@ void gbWriteMemory(uint16_t address, uint8_t value)
                 if (!gbInt48Signal) {
                     gbMemory[0xff0f] = register_IF |= 2;
                 }
-                //gbInt48Signal |= 4;
+                gbInt48Signal |= 4;
             }
             gbCompareLYToLYC();
 
@@ -1582,7 +1501,7 @@ void gbWriteMemory(uint16_t address, uint8_t value)
             }
             inBios = false;
         }
-    } break;
+    }
 
     // HDMA1
     case 0x51: {
@@ -1696,7 +1615,8 @@ void gbWriteMemory(uint16_t address, uint8_t value)
             int paletteIndex = (v & 0x3f) >> 1;
             int paletteHiLo = (v & 0x01);
 
-            if (gbCgbPaletteAccessValid()) {
+            // No access to gbPalette during mode 3 (Color Panel Demo)
+            if (((gbLcdModeDelayed != 3) && (!((gbLcdMode == 0) && (gbLcdTicks >= (GBLCD_MODE_0_CLOCK_TICKS - gbSpritesTicks[299] - 1)))) && (!gbSpeed)) || (gbSpeed && ((gbLcdMode == 1) || (gbLcdMode == 2) || ((gbLcdMode == 3) && (gbLcdTicks > (GBLCD_MODE_3_CLOCK_TICKS - 2))) || ((gbLcdMode == 0) && (gbLcdTicks <= (GBLCD_MODE_0_CLOCK_TICKS - gbSpritesTicks[299] - 2)))))) {
                 gbMemory[0xff69] = value;
                 gbPalette[paletteIndex] = (paletteHiLo ? ((value << 8) | (gbPalette[paletteIndex] & 0xff)) : ((gbPalette[paletteIndex] & 0xff00) | (value))) & 0x7fff;
             }
@@ -1736,7 +1656,8 @@ void gbWriteMemory(uint16_t address, uint8_t value)
 
             paletteIndex += 32;
 
-            if (gbCgbPaletteAccessValid()) {
+            // No access to gbPalette during mode 3 (Color Panel Demo)
+            if (((gbLcdModeDelayed != 3) && (!((gbLcdMode == 0) && (gbLcdTicks >= (GBLCD_MODE_0_CLOCK_TICKS - gbSpritesTicks[299] - 1)))) && (!gbSpeed)) || (gbSpeed && ((gbLcdMode == 1) || (gbLcdMode == 2) || ((gbLcdMode == 3) && (gbLcdTicks > (GBLCD_MODE_3_CLOCK_TICKS - 2))) || ((gbLcdMode == 0) && (gbLcdTicks <= (GBLCD_MODE_0_CLOCK_TICKS - gbSpritesTicks[299] - 2)))))) {
                 gbMemory[0xff6b] = value;
                 gbPalette[paletteIndex] = (paletteHiLo ? ((value << 8) | (gbPalette[paletteIndex] & 0xff)) : ((gbPalette[paletteIndex] & 0xff00) | (value))) & 0x7fff;
             }
@@ -1776,7 +1697,7 @@ void gbWriteMemory(uint16_t address, uint8_t value)
             gbMemory[0xff70] = register_SVBK = value;
             return;
         }
-    } break;
+    }
 
     case 0x75: {
         gbMemory[0xff75] = 0x8f | value;
@@ -1797,7 +1718,7 @@ void gbWriteMemory(uint16_t address, uint8_t value)
     gbMemory[address] = value;
 }
 
-uint8_t gbReadMemory(uint16_t address)
+uint8_t gbReadMemory(register uint16_t address)
 {
     if (gbCheatMap[address])
         return gbCheatRead(address);
@@ -1806,8 +1727,13 @@ uint8_t gbReadMemory(uint16_t address)
         return gbMemoryMap[address >> 12][address & 0x0fff];
 
     if (address < 0xa000) {
-        if (gbVramReadAccessValid())
+        // A lot of 'ugly' checks... But only way to emulate this particular behaviour...
+        if (
+            (
+                (gbHardware & 0xa) && ((gbLcdModeDelayed != 3) || (((register_LY == 0) && (gbScreenOn == false) && (register_LCDC & 0x80)) && (gbLcdLYIncrementTicksDelayed == (GBLY_INCREMENT_CLOCK_TICKS - GBLCD_MODE_2_CLOCK_TICKS)))))
+            || ((gbHardware & 0x5) && (gbLcdModeDelayed != 3) && ((gbLcdMode != 3) || ((register_LY == 0) && ((gbScreenOn == false) && (register_LCDC & 0x80)) && (gbLcdLYIncrementTicks == (GBLY_INCREMENT_CLOCK_TICKS - GBLCD_MODE_2_CLOCK_TICKS))))))
             return gbMemoryMap[address >> 12][address & 0x0fff];
+
         return 0xff;
     }
 
@@ -1925,11 +1851,11 @@ uint8_t gbReadMemory(uint16_t address)
             return gbMemory[0xff01];
         case 0x02:
             return (gbMemory[0xff02]);
-        case 0x03:
-            log("Undocumented Memory register read %04x PC=%04x\n",
+            case 0x03:
+                log("Undocumented Memory register read %04x PC=%04x\n",
                 address,
                 PC.W);
-            return 0xff;
+                return 0xff;
         case 0x04:
             return register_DIV;
         case 0x05:
@@ -2000,7 +1926,7 @@ uint8_t gbReadMemory(uint16_t address)
         case 0x3e:
         case 0x3f:
             // Sound registers read
-            return gbSoundRead(soundTicks, address);
+            return gbSoundRead(address);
         case 0x40:
             return register_LCDC;
         case 0x41:
@@ -2049,7 +1975,8 @@ uint8_t gbReadMemory(uint16_t address)
         case 0x69:
         case 0x6b:
             if (gbCgbMode) {
-                if (gbCgbPaletteAccessValid())
+                // No access to gbPalette during mode 3 (Color Panel Demo)
+                if (((gbLcdModeDelayed != 3) && (!((gbLcdMode == 0) && (gbLcdTicks >= (GBLCD_MODE_0_CLOCK_TICKS - gbSpritesTicks[299] - 1)))) && (!gbSpeed)) || (gbSpeed && ((gbLcdMode == 1) || (gbLcdMode == 2) || ((gbLcdMode == 3) && (gbLcdTicks > (GBLCD_MODE_3_CLOCK_TICKS - 2))) || ((gbLcdMode == 0) && (gbLcdTicks <= (GBLCD_MODE_0_CLOCK_TICKS - gbSpritesTicks[299] - 2))))))
                     return (gbMemory[address]);
                 else
                     return 0xff;
@@ -2260,7 +2187,7 @@ static void gbSelectColorizationPalette()
         }
 
         // Check if the checksum is in the list.
-        size_t idx;
+        int idx;
         for (idx = 0; idx < sizeof(gbColorizationChecksums); idx++) {
             if (gbColorizationChecksums[idx] == checksum) {
                 break;
@@ -2272,7 +2199,7 @@ static void gbSelectColorizationPalette()
             // Indexes above 0x40 have to be disambiguated.
             if (idx > 0x40) {
                 // No idea how that works. But it works.
-                for (size_t i = idx - 0x41, j = 0; i < sizeof(gbColorizationDisambigChars); i += 14, j += 14) {
+                for (int i = idx - 0x41, j = 0; i < sizeof(gbColorizationDisambigChars); i += 14, j += 14) {
                     if (gbRom[0x0137] == gbColorizationDisambigChars[i]) {
                         infoIdx = idx + j;
                         break;
@@ -2605,7 +2532,7 @@ void gbReset()
 
     gbTimerModeChange = false;
     gbTimerOnChange = false;
-    gbTimerOn = 0;
+    gbTimerOn = false;
 
     if (gbCgbMode) {
         for (i = 0; i < 0x20; i++)
@@ -2749,7 +2676,7 @@ void gbReset()
     gbSerialBits = 0;
     gbSerialOn = 0;
     gbWindowLine = -1;
-    gbTimerOn = 0;
+    gbTimerOn = false;
     gbTimerMode = 0;
     gbSpeed = 0;
     gbJoymask[0] = gbJoymask[1] = gbJoymask[2] = gbJoymask[3] = 0;
@@ -2786,15 +2713,12 @@ void gbReset()
 
     memset(&gbDataMBC5, 0, sizeof(gbDataMBC5));
     gbDataMBC5.mapperROMBank = 1;
-    gbDataMBC5.isRumbleCartridge = gbRumble;
 
     memset(&gbDataHuC1, 0, sizeof(gbDataHuC1));
     gbDataHuC1.mapperROMBank = 1;
 
     memset(&gbDataHuC3, 0, sizeof(gbDataHuC3));
     gbDataHuC3.mapperROMBank = 1;
-    gbDataHuC3.mapperRAMValue = 1;
-    gbRTCHuC3.memoryTimerRead = 1;
 
     memset(&gbDataTAMA5, 0, 26 * sizeof(int));
     gbDataTAMA5.mapperROMBank = 1;
@@ -2820,15 +2744,7 @@ void gbReset()
         gbMemoryMap[0x09] = &gbVram[0x1000];
         gbMemoryMap[0x0a] = &gbMemory[0xa000];
         gbMemoryMap[0x0b] = &gbMemory[0xb000];
-
-        // TODO: 2019/1/15
-        // Should we be using gbWram[] on $C000 as well
-        // for a continouos mem block?
-#ifndef __LIBRETRO__
         gbMemoryMap[0x0c] = &gbMemory[0xc000];
-#else
-        gbMemoryMap[0x0c] = &gbWram[0x0000];
-#endif
         gbMemoryMap[0x0d] = &gbWram[0x1000];
         gbMemoryMap[0x0e] = &gbMemory[0xe000];
         gbMemoryMap[0x0f] = &gbMemory[0xf000];
@@ -2865,7 +2781,7 @@ void gbReset()
 void gbWriteSaveMBC1(const char* name)
 {
     if (gbRam) {
-        FILE* gzFile = utilOpenFile(name, "wb");
+        FILE* gzFile = fopen(name, "wb");
 
         if (gzFile == NULL) {
             systemMessage(MSG_ERROR_CREATING_FILE, N_("Error creating file %s"), name);
@@ -2884,7 +2800,7 @@ void gbWriteSaveMBC1(const char* name)
 void gbWriteSaveMBC2(const char* name)
 {
     if (gbRam) {
-        FILE* file = utilOpenFile(name, "wb");
+        FILE* file = fopen(name, "wb");
 
         if (file == NULL) {
             systemMessage(MSG_ERROR_CREATING_FILE, N_("Error creating file %s"), name);
@@ -2903,7 +2819,7 @@ void gbWriteSaveMBC2(const char* name)
 void gbWriteSaveMBC3(const char* name, bool extendedSave)
 {
     if (gbRam || extendedSave) {
-        FILE* gzFile = utilOpenFile(name, "wb");
+        FILE* gzFile = fopen(name, "wb");
         if (gbRam) {
 
             if (gzFile == NULL) {
@@ -2920,7 +2836,7 @@ void gbWriteSaveMBC3(const char* name, bool extendedSave)
         if (extendedSave)
             fwrite(&gbDataMBC3.mapperSeconds,
                 1,
-                MBC3_RTC_DATA_SIZE,
+                10 * sizeof(int) + sizeof(time_t),
                 gzFile);
 
         fclose(gzFile);
@@ -2930,7 +2846,7 @@ void gbWriteSaveMBC3(const char* name, bool extendedSave)
 void gbWriteSaveMBC5(const char* name)
 {
     if (gbRam) {
-        FILE* gzFile = utilOpenFile(name, "wb");
+        FILE* gzFile = fopen(name, "wb");
 
         if (gzFile == NULL) {
             systemMessage(MSG_ERROR_CREATING_FILE, N_("Error creating file %s"), name);
@@ -2949,7 +2865,7 @@ void gbWriteSaveMBC5(const char* name)
 void gbWriteSaveMBC7(const char* name)
 {
     if (gbRam) {
-        FILE* file = utilOpenFile(name, "wb");
+        FILE* file = fopen(name, "wb");
 
         if (file == NULL) {
             systemMessage(MSG_ERROR_CREATING_FILE, N_("Error creating file %s"), name);
@@ -2967,7 +2883,7 @@ void gbWriteSaveMBC7(const char* name)
 
 void gbWriteSaveTAMA5(const char* name, bool extendedSave)
 {
-    FILE* gzFile = utilOpenFile(name, "wb");
+    FILE* gzFile = fopen(name, "wb");
 
     if (gzFile == NULL) {
         systemMessage(MSG_ERROR_CREATING_FILE, N_("Error creating file %s"), name);
@@ -2987,7 +2903,7 @@ void gbWriteSaveTAMA5(const char* name, bool extendedSave)
     if (extendedSave)
         fwrite(&gbDataTAMA5.mapperSeconds,
             1,
-            TAMA5_RTC_DATA_SIZE,
+            14 * sizeof(int) + sizeof(time_t),
             gzFile);
 
     fclose(gzFile);
@@ -2996,7 +2912,7 @@ void gbWriteSaveTAMA5(const char* name, bool extendedSave)
 void gbWriteSaveMMM01(const char* name)
 {
     if (gbRam) {
-        FILE* gzFile = utilOpenFile(name, "wb");
+        FILE* gzFile = fopen(name, "wb");
 
         if (gzFile == NULL) {
             systemMessage(MSG_ERROR_CREATING_FILE, N_("Error creating file %s"), name);
@@ -3015,7 +2931,7 @@ void gbWriteSaveMMM01(const char* name)
 bool gbReadSaveMBC1(const char* name)
 {
     if (gbRam) {
-        gzFile gzFile = utilAutoGzOpen(name, "rb");
+        gzFile gzFile = gzopen(name, "rb");
 
         if (gzFile == NULL) {
             return false;
@@ -3057,7 +2973,7 @@ bool gbReadSaveMBC1(const char* name)
 bool gbReadSaveMBC2(const char* name)
 {
     if (gbRam) {
-        FILE* file = utilOpenFile(name, "rb");
+        FILE* file = fopen(name, "rb");
 
         if (file == NULL) {
             return false;
@@ -3100,7 +3016,7 @@ bool gbReadSaveMBC2(const char* name)
 
 bool gbReadSaveMBC3(const char* name)
 {
-    gzFile gzFile = utilAutoGzOpen(name, "rb");
+    gzFile gzFile = gzopen(name, "rb");
 
     if (gzFile == NULL) {
         return false;
@@ -3122,17 +3038,20 @@ bool gbReadSaveMBC3(const char* name)
             N_("Battery file's size incompatible with the rom settings %s (%d).\nWarning : save of the battery file is now disabled !"), name, read);
         gbBatteryError = true;
         res = false;
-    } else if ((gbRomType == 0xf) || (gbRomType == 0x10)) { // read RTC data
+    } else if ((gbRomType == 0xf) || (gbRomType == 0x10)) {
         read = gzread(gzFile,
             &gbDataMBC3.mapperSeconds,
-            MBC3_RTC_DATA_SIZE);
+            sizeof(int) * 10 + sizeof(time_t));
 
-        if (!read || (read != MBC3_RTC_DATA_SIZE && read != MBC3_RTC_DATA_SIZE - 4)) { // detect old 32 bit saves
+        if (read != (sizeof(int) * 10 + sizeof(time_t)) && read != 0) {
             systemMessage(MSG_FAILED_TO_READ_RTC, N_("Failed to read RTC from save game %s (continuing)"),
                 name);
             res = false;
-        }
-        else {
+        } else if (read == 0) {
+            systemMessage(MSG_FAILED_TO_READ_RTC, N_("Failed to read RTC from save game %s (continuing)"),
+                name);
+            res = false;
+        } else {
             // Also checks if the battery file it bigger than gbRamSizeMask+1+RTC !
             uint8_t data[1];
             data[0] = 0;
@@ -3156,7 +3075,7 @@ bool gbReadSaveMBC3(const char* name)
 bool gbReadSaveMBC5(const char* name)
 {
     if (gbRam) {
-        gzFile gzFile = utilAutoGzOpen(name, "rb");
+        gzFile gzFile = gzopen(name, "rb");
 
         if (gzFile == NULL) {
             return false;
@@ -3198,7 +3117,7 @@ bool gbReadSaveMBC5(const char* name)
 bool gbReadSaveMBC7(const char* name)
 {
     if (gbRam) {
-        FILE* file = utilOpenFile(name, "rb");
+        FILE* file = fopen(name, "rb");
 
         if (file == NULL) {
             return false;
@@ -3241,7 +3160,7 @@ bool gbReadSaveMBC7(const char* name)
 
 bool gbReadSaveTAMA5(const char* name)
 {
-    gzFile gzFile = utilAutoGzOpen(name, "rb");
+    gzFile gzFile = gzopen(name, "rb");
 
     if (gzFile == NULL) {
         return false;
@@ -3270,9 +3189,13 @@ bool gbReadSaveTAMA5(const char* name)
     } else {
         read = gzread(gzFile,
             &gbDataTAMA5.mapperSeconds,
-            TAMA5_RTC_DATA_SIZE);
+            sizeof(int) * 14 + sizeof(time_t));
 
-        if (!read || (read != TAMA5_RTC_DATA_SIZE && read != TAMA5_RTC_DATA_SIZE - 4)) { // detect old 32 bit saves
+        if (read != (sizeof(int) * 14 + sizeof(time_t)) && read != 0) {
+            systemMessage(MSG_FAILED_TO_READ_RTC, N_("Failed to read RTC from save game %s (continuing)"),
+                name);
+            res = false;
+        } else if (read == 0) {
             systemMessage(MSG_FAILED_TO_READ_RTC, N_("Failed to read RTC from save game %s (continuing)"),
                 name);
             res = false;
@@ -3300,7 +3223,7 @@ bool gbReadSaveTAMA5(const char* name)
 bool gbReadSaveMMM01(const char* name)
 {
     if (gbRam) {
-        gzFile gzFile = utilAutoGzOpen(name, "rb");
+        gzFile gzFile = gzopen(name, "rb");
 
         if (gzFile == NULL) {
             return false;
@@ -3344,7 +3267,6 @@ void gbInit()
 {
     gbGenFilter();
     gbSgbInit();
-    setColorizerHack(false);
 
     gbMemory = (uint8_t*)malloc(65536);
 
@@ -3494,7 +3416,7 @@ bool gbReadBatteryFile(const char* file)
 
 bool gbReadGSASnapshot(const char* fileName)
 {
-    FILE* file = utilOpenFile(fileName, "rb");
+    FILE* file = fopen(fileName, "rb");
 
     if (!file) {
         systemMessage(MSG_CANNOT_OPEN_FILE, N_("Cannot open file %s"), fileName);
@@ -3504,7 +3426,7 @@ bool gbReadGSASnapshot(const char* fileName)
     fseek(file, 0x4, SEEK_SET);
     char buffer[16];
     char buffer2[16];
-    FREAD_UNCHECKED(buffer, 1, 15, file);
+    fread(buffer, 1, 15, file);
     buffer[15] = 0;
     memcpy(buffer2, &gbRom[0x134], 15);
     buffer2[15] = 0;
@@ -3517,6 +3439,8 @@ bool gbReadGSASnapshot(const char* fileName)
         return false;
     }
     fseek(file, 0x13, SEEK_SET);
+    size_t read = 0;
+    int toRead = 0;
     switch (gbRomType) {
     case 0x03:
     case 0x0f:
@@ -3525,11 +3449,13 @@ bool gbReadGSASnapshot(const char* fileName)
     case 0x1b:
     case 0x1e:
     case 0xff:
-        FREAD_UNCHECKED(gbRam, 1, (gbRamSizeMask + 1), file);
+        read = fread(gbRam, 1, (gbRamSizeMask + 1), file);
+        toRead = (gbRamSizeMask + 1);
         break;
     case 0x06:
     case 0x22:
-        FREAD_UNCHECKED(&gbMemory[0xa000], 1, 256, file);
+        read = fread(&gbMemory[0xa000], 1, 256, file);
+        toRead = 256;
         break;
     default:
         systemMessage(MSG_UNSUPPORTED_SNAPSHOT_FILE,
@@ -3799,7 +3725,13 @@ static bool gbReadSaveState(gzFile gzFile)
     else
         utilGzRead(gzFile, &gbDataMBC1, sizeof(gbDataMBC1));
     utilGzRead(gzFile, &gbDataMBC2, sizeof(gbDataMBC2));
-    utilGzRead(gzFile, &gbDataMBC3, sizeof(gbDataMBC3));
+    if (version < GBSAVE_GAME_VERSION_4)
+        // prior to version 4, there was no adjustment for the time the game
+        // was last played, so we have less to read. This needs update if the
+        // structure changes again.
+        utilGzRead(gzFile, &gbDataMBC3, sizeof(gbDataMBC3) - sizeof(time_t));
+    else
+        utilGzRead(gzFile, &gbDataMBC3, sizeof(gbDataMBC3));
     utilGzRead(gzFile, &gbDataMBC5, sizeof(gbDataMBC5));
     utilGzRead(gzFile, &gbDataHuC1, sizeof(gbDataHuC1));
     utilGzRead(gzFile, &gbDataHuC3, sizeof(gbDataHuC3));
@@ -4093,6 +4025,7 @@ bool gbReadSaveState(const char* name)
 
     return res;
 }
+#endif // !__LIBRETRO__
 
 bool gbWritePNGFile(const char* fileName)
 {
@@ -4107,7 +4040,6 @@ bool gbWriteBMPFile(const char* fileName)
         return utilWriteBMPFile(fileName, 256, 224, pix);
     return utilWriteBMPFile(fileName, 160, 144, pix);
 }
-#endif // !__LIBRETRO__
 
 void gbCleanUp()
 {
@@ -4187,9 +4119,6 @@ bool gbLoadRom(const char* szFile)
         bios = NULL;
     }
     bios = (uint8_t*)calloc(1, 0x900);
-
-    if (!gbCheckRomHeader())
-        return false;
 
     return gbUpdateSizes();
 }
@@ -4401,7 +4330,6 @@ bool gbUpdateSizes()
     switch (gbRomType) {
     case 0x03:
     case 0x06:
-    case 0x0d:
     case 0x0f:
     case 0x10:
     case 0x13:
@@ -4410,39 +4338,21 @@ bool gbUpdateSizes()
     case 0x1e:
     case 0x22:
     case 0xfd:
-    case 0xfe:
     case 0xff:
         gbBattery = 1;
         break;
-    default:
-        gbBattery = 0;
-        break;
     }
+
+    gbInit();
+
+    //gbReset();
 
     switch (gbRomType) {
     case 0x1c:
     case 0x1d:
     case 0x1e:
-        gbRumble = 1;
-        break;
-    default:
-        gbRumble = 0;
-        break;
+        gbDataMBC5.isRumbleCartridge = 1;
     }
-
-    switch (gbRomType) {
-    case 0x0f:
-    case 0x10: // mbc3
-    case 0xfd: // tama5
-    case 0xfe:
-        gbRTCPresent = 1;
-        break;
-    default:
-        gbRTCPresent = 0;
-        break;
-    }
-
-    gbInit();
 
     return true;
 }
@@ -4591,48 +4501,20 @@ void gbDrawLine()
     }
 }
 
-static void gbUpdateJoypads(bool readSensors)
-{
-    if (systemReadJoypads()) {
-        // read joystick
-        if (gbSgbMode && gbSgbMultiplayer) {
-            if (gbSgbFourPlayers) {
-                gbJoymask[0] = systemReadJoypad(0);
-                gbJoymask[1] = systemReadJoypad(1);
-                gbJoymask[2] = systemReadJoypad(2);
-                gbJoymask[3] = systemReadJoypad(3);
-            } else {
-                gbJoymask[0] = systemReadJoypad(0);
-                gbJoymask[1] = systemReadJoypad(1);
-            }
-        } else {
-            gbJoymask[0] = systemReadJoypad(-1);
-        }
-    }
-
-    if (readSensors && gbRomType == 0x22) {
-        systemUpdateMotionSensor();
-    }
-}
-
 void gbEmulate(int ticksToStop)
 {
     gbRegister tempRegister;
     uint8_t tempValue;
     int8_t offset;
 
-
     clockTicks = 0;
     gbDmaTicks = 0;
 
-    int opcode = 0;
+    register int opcode = 0;
 
     int opcode1 = 0;
     int opcode2 = 0;
     bool execute = false;
-    bool frameDone = false;
-
-    gbUpdateJoypads(true);
 
     while (1) {
         uint16_t oldPCW = PC.W;
@@ -4745,8 +4627,6 @@ void gbEmulate(int ticksToStop)
         }
 
         ticksToStop -= clockTicks;
-        soundTicks += clockTicks;
-         if (!gbSpeed) soundTicks += clockTicks;
 
         // DIV register emulation
         gbDivTicks -= clockTicks;
@@ -4886,16 +4766,16 @@ void gbEmulate(int ticksToStop)
                             //(fixes a part of Carmaggedon problem)
                             if ((register_LCDC & 0x01 || gbCgbMode) && (register_LCDC & 0x20) && (gbWindowLine != -2)) {
 
-                                int tempinUseRegister_WY = inUseRegister_WY;
+                                int inUseRegister_WY = 0;
                                 int tempgbWindowLine = gbWindowLine;
 
                                 if ((tempgbWindowLine == -1) || (tempgbWindowLine > 144)) {
-                                    tempinUseRegister_WY = oldRegister_WY;
+                                    inUseRegister_WY = oldRegister_WY;
                                     if (register_LY > oldRegister_WY)
                                         tempgbWindowLine = 146;
                                 }
 
-                                if (register_LY >= tempinUseRegister_WY) {
+                                if (register_LY >= inUseRegister_WY) {
 
                                     if (tempgbWindowLine == -1)
                                         tempgbWindowLine = 0;
@@ -4951,35 +4831,8 @@ void gbEmulate(int ticksToStop)
 
                 if ((gbLcdTicksDelayed <= 0) && (gbLCDChangeHappened)) {
                     int framesToSkip = systemFrameSkip;
-
-                    static bool speedup_throttle_set = false;
-                    bool turbo_button_pressed        = (gbJoymask[0] >> 10) & 1;
-#ifndef __LIBRETRO__
-                    static uint32_t last_throttle;
-
-                    if (turbo_button_pressed) {
-                        if (speedup_frame_skip)
-                            framesToSkip = speedup_frame_skip;
-                        else {
-                            if (!speedup_throttle_set && throttle != speedup_throttle) {
-                                last_throttle = throttle;
-                                soundSetThrottle(speedup_throttle);
-                                speedup_throttle_set = true;
-                            }
-
-                            if (speedup_throttle_frame_skip)
-                                framesToSkip += std::ceil(double(speedup_throttle) / 100.0) - 1;
-                        }
-                    }
-                    else if (speedup_throttle_set) {
-                        soundSetThrottle(last_throttle);
-                        speedup_throttle_set = false;
-                    }
-#else
-                    if (turbo_button_pressed)
-                        framesToSkip = 9;
-#endif
-
+                    if (speedup)
+                        framesToSkip = 9; // try 6 FPS during speedup
                     //gbLcdTicksDelayed = gbLcdTicks+1;
                     gbLCDChangeHappened = false;
                     switch (gbLcdModeDelayed) {
@@ -5013,7 +4866,6 @@ void gbEmulate(int ticksToStop)
 
                             gbFrameCount++;
                             systemFrame();
-                            gbSoundTick(soundTicks);
 
                             if ((gbFrameCount % 10) == 0)
                                 system10Frames(60);
@@ -5028,7 +4880,27 @@ void gbEmulate(int ticksToStop)
                                 gbFrameCount = 0;
                             }
 
+                            if (systemReadJoypads()) {
+                                // read joystick
+                                if (gbSgbMode && gbSgbMultiplayer) {
+                                    if (gbSgbFourPlayers) {
+                                        gbJoymask[0] = systemReadJoypad(0);
+                                        gbJoymask[1] = systemReadJoypad(1);
+                                        gbJoymask[2] = systemReadJoypad(2);
+                                        gbJoymask[3] = systemReadJoypad(3);
+                                    } else {
+                                        gbJoymask[0] = systemReadJoypad(0);
+                                        gbJoymask[1] = systemReadJoypad(1);
+                                    }
+                                } else {
+                                    gbJoymask[0] = systemReadJoypad(-1);
+                                }
+                            }
                             int newmask = gbJoymask[0] & 255;
+
+                            if (gbRomType == 0x22) {
+                                systemUpdateMotionSensor();
+                            }
 
                             if (newmask) {
                                 gbMemory[0xff0f] = register_IF |= 16;
@@ -5036,11 +4908,7 @@ void gbEmulate(int ticksToStop)
 
                             newmask = (gbJoymask[0] >> 10);
 
-                            speedup = false;
-
-                            if (newmask & 1 && !speedup_throttle_set)
-                                speedup = true;
-
+                            speedup = (newmask & 1) ? true : false;
                             gbCapture = (newmask & 2) ? true : false;
 
                             if (gbCapture && !gbCapturePrevious) {
@@ -5060,12 +4928,8 @@ void gbEmulate(int ticksToStop)
                                         ticksToStop = 0;
                                 }
                                 gbFrameSkipCount = 0;
-                            } else {
+                            } else
                                 gbFrameSkipCount++;
-                                systemSendScreen();
-                            }
-
-                            frameDone = true;
 
                         } else {
                             // go the the OAM being accessed mode
@@ -5201,8 +5065,8 @@ void gbEmulate(int ticksToStop)
                         gbDrawLine();
                     } else if ((register_LY == 144) && (!systemFrameSkip)) {
                         int framesToSkip = systemFrameSkip;
-                        //if (speedup)
-                        //    framesToSkip = 9; // try 6 FPS during speedup
+                        if (speedup)
+                            framesToSkip = 9; // try 6 FPS during speedup
                         if ((gbFrameSkipCount >= framesToSkip) || (gbWhiteScreen == 1)) {
                             gbWhiteScreen = 2;
 
@@ -5214,14 +5078,26 @@ void gbEmulate(int ticksToStop)
                                 if (systemPauseOnFrame())
                                     ticksToStop = 0;
                             }
-                        } else {
-                            systemSendScreen();
                         }
-
+                        if (systemReadJoypads()) {
+                            // read joystick
+                            if (gbSgbMode && gbSgbMultiplayer) {
+                                if (gbSgbFourPlayers) {
+                                    gbJoymask[0] = systemReadJoypad(0);
+                                    gbJoymask[1] = systemReadJoypad(1);
+                                    gbJoymask[2] = systemReadJoypad(2);
+                                    gbJoymask[3] = systemReadJoypad(3);
+                                } else {
+                                    gbJoymask[0] = systemReadJoypad(0);
+                                    gbJoymask[1] = systemReadJoypad(1);
+                                }
+                            } else {
+                                gbJoymask[0] = systemReadJoypad(-1);
+                            }
+                        }
                         gbFrameCount++;
 
                         systemFrame();
-                        gbSoundTick(soundTicks);
 
                         if ((gbFrameCount % 10) == 0)
                             system10Frames(60);
@@ -5235,7 +5111,6 @@ void gbEmulate(int ticksToStop)
                             gbLastTime = currentTime;
                             gbFrameCount = 0;
                         }
-                        frameDone = true;
                     }
                 }
             }
@@ -5331,36 +5206,16 @@ void gbEmulate(int ticksToStop)
                 }
 #endif
             }
-#else
-        static int SIOctr = 0;
-        SIOctr++;
-        if (SIOctr % 5) {
-            if (gbSerialOn) {
-                if  (gbMemory[0xff02] & 1) {
-                    gbSerialTicks -= clockTicks;
-                    while (gbSerialTicks <= 0) {
-                        gbMemory[0xff01] = (gbMemory[0xff01] << 1) | 1;
-                        gbSerialBits++;
-                        if (gbSerialBits >= 8) {
-                            gbMemory[0xff02] &= 0x7f;
-                            gbMemory[0xff0f] = register_IF |= 8;
-                            gbSerialOn = 0;
-                            gbSerialBits = 0;
-                        } else
-                            gbSerialTicks += GBSERIAL_CLOCK_TICKS;
-                    }
-                }
-            }
-        }
 #endif
-        // TODO: evaluate and fix this
-        // On VBA-M (gb core running twice as fast?), each vblank is uses 35112 cycles.
-        // on some cases no vblank is generated causing sound ticks to keep accumulating causing core to crash.
-        // This forces core to flush sound buffers when expected sound ticks has passed and no frame is done yet.which then ends cpuloop
-        if ((soundTicks > SOUND_CLOCK_TICKS) && !frameDone) {
-            int last_st = soundTicks;
-            gbSoundTick(soundTicks);
-            soundTicks = (last_st - SOUND_CLOCK_TICKS);
+
+        soundTicks -= clockTicks;
+        if (!gbSpeed)
+            soundTicks -= clockTicks;
+
+        while (soundTicks < 0) {
+            soundTicks += SOUND_CLOCK_TICKS;
+
+            gbSoundTick();
         }
 
         // timer emulation
@@ -5486,7 +5341,25 @@ void gbEmulate(int ticksToStop)
 
         gbBlackScreen = false;
 
-        if (ticksToStop <= 0 || frameDone) { // Stop loop
+        if ((ticksToStop <= 0)) {
+            if (!(register_LCDC & 0x80)) {
+                if (systemReadJoypads()) {
+                    // read joystick
+                    if (gbSgbMode && gbSgbMultiplayer) {
+                        if (gbSgbFourPlayers) {
+                            gbJoymask[0] = systemReadJoypad(0);
+                            gbJoymask[1] = systemReadJoypad(1);
+                            gbJoymask[2] = systemReadJoypad(2);
+                            gbJoymask[3] = systemReadJoypad(3);
+                        } else {
+                            gbJoymask[0] = systemReadJoypad(0);
+                            gbJoymask[1] = systemReadJoypad(1);
+                        }
+                    } else {
+                        gbJoymask[0] = systemReadJoypad(-1);
+                    }
+                }
+            }
             return;
         }
     }
@@ -5515,13 +5388,14 @@ bool gbLoadRomData(const char* data, unsigned size)
         bios = NULL;
     }
     bios = (uint8_t*)calloc(1, 0x900);
+
     return gbUpdateSizes();
 }
 
 #ifdef __LIBRETRO__
 #include <stddef.h>
 
-unsigned int gbWriteSaveState(uint8_t* data)
+unsigned int gbWriteSaveState(uint8_t* data, unsigned)
 {
 	uint8_t* orig = data;
 
@@ -5546,8 +5420,6 @@ unsigned int gbWriteSaveState(uint8_t* data)
     utilWriteMem(data, &gbDataMBC5, sizeof(gbDataMBC5));
     utilWriteMem(data, &gbDataHuC1, sizeof(gbDataHuC1));
     utilWriteMem(data, &gbDataHuC3, sizeof(gbDataHuC3));
-    if (gbRomType == 0xfe) // HuC3 rtc data
-        utilWriteMem(data, &gbRTCHuC3, sizeof(gbRTCHuC3));
     utilWriteMem(data, &gbDataTAMA5, sizeof(gbDataTAMA5));
     if (gbTAMA5ram != NULL)
         utilWriteMem(data, gbTAMA5ram, gbTAMA5ramSize);
@@ -5589,7 +5461,7 @@ unsigned int gbWriteSaveState(uint8_t* data)
 	return (ptrdiff_t)data - (ptrdiff_t)orig;
 }
 
-bool gbReadSaveState(const uint8_t* data)
+bool gbReadSaveState(const uint8_t* data, unsigned)
 {
     int version = utilReadIntMem(data);
 
@@ -5654,7 +5526,7 @@ bool gbReadSaveState(const uint8_t* data)
     utilReadMem(&IFF, data, 2);
 
     if (gbSgbMode) {
-        gbSgbReadGame(data);
+        gbSgbReadGame(data, version);
     } else {
         gbSgbMask = 0; // loading a game at the wrong time causes no display
     }
@@ -5665,8 +5537,6 @@ bool gbReadSaveState(const uint8_t* data)
     utilReadMem(&gbDataMBC5, data, sizeof(gbDataMBC5));
     utilReadMem(&gbDataHuC1, data, sizeof(gbDataHuC1));
     utilReadMem(&gbDataHuC3, data, sizeof(gbDataHuC3));
-    if (gbRomType == 0xfe) // HuC3 rtc data
-        utilReadMem(&gbRTCHuC3, data, sizeof(gbRTCHuC3));
     utilReadMem(&gbDataTAMA5, data, sizeof(gbDataTAMA5));
     if (gbTAMA5ram != NULL) {
         utilReadMem(gbTAMA5ram, data, gbTAMA5ramSize);
@@ -5792,11 +5662,10 @@ bool gbReadSaveState(const uint8_t* data)
 
         gbMemoryMap[0x08] = &gbVram[register_VBK * 0x2000];
         gbMemoryMap[0x09] = &gbVram[register_VBK * 0x2000 + 0x1000];
-        gbMemoryMap[0x0c] = &gbWram[0x0000];
         gbMemoryMap[0x0d] = &gbWram[value * 0x1000];
     }
 
-    gbSoundReadGame(data);
+    gbSoundReadGame(data, version);
 
     if (gbCgbMode && gbSgbMode) {
         gbSgbMode = 0;
@@ -5829,7 +5698,27 @@ bool gbReadSaveState(const uint8_t* data)
 
     return true;
 }
-#endif /* __LIBRETRO__ */
+
+bool gbWriteMemSaveState(char*, int, long&)
+{
+	return false;
+}
+
+bool gbReadMemSaveState(char*, int)
+{
+    return false;
+}
+
+bool gbReadBatteryFile(const char*)
+{
+    return false;
+}
+
+bool gbWriteBatteryFile(const char*)
+{
+    return false;
+}
+#endif
 
 struct EmulatedSystem GBSystem = {
     // emuMain
@@ -5838,16 +5727,6 @@ struct EmulatedSystem GBSystem = {
     gbReset,
     // emuCleanUp
     gbCleanUp,
-#ifdef __LIBRETRO__
-    NULL,               // emuReadBattery
-    NULL,               // emuWriteBattery
-    gbReadSaveState,    // emuReadState
-    gbWriteSaveState,   // emuWriteState
-    NULL,               // emuReadMemState
-    NULL,               // emuWriteMemState
-    NULL,               // emuWritePNG
-    NULL,               // emuWriteBMP
-#else    
     // emuReadBattery
     gbReadBatteryFile,
     // emuWriteBattery
@@ -5864,14 +5743,13 @@ struct EmulatedSystem GBSystem = {
     gbWritePNGFile,
     // emuWriteBMP
     gbWriteBMPFile,
-#endif /* ! __LIBRETRO__ */
     // emuUpdateCPSR
     NULL,
     // emuHasDebugger
     false,
     // emuCount
 #ifdef FINAL_VERSION
-    72000,
+    70000 / 4,
 #else
     1000,
 #endif

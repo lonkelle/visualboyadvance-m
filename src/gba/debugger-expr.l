@@ -7,7 +7,6 @@
 #define YY_NO_UNISTD_H
 #include <io.h>
 #define isatty _isatty
-#define fileno _fileno
 #endif
 
 extern YYSTYPE dexp_lval;
@@ -17,7 +16,7 @@ int dexprCol;
 
 #define YY_INPUT(buf,result,max_size) \
     { \
-    char c = *dexprString++; \
+    int c = *dexprString++; \
     dexprCol++;\
     result = (c == 0) ? YY_NULL : (buf[0] = c, 1); \
     }
@@ -26,8 +25,6 @@ int dexprCol;
 
 %option nomain
 %option noyywrap
-%option noinput
-%option nounput
 
 HEX [0-9a-fA-F]
 

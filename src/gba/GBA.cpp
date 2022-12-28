@@ -1,4 +1,3 @@
-#include <cmath>
 #include <memory.h>
 #include <stdarg.h>
 #include <stddef.h>
@@ -57,6 +56,7 @@ int dummyAddress = 0;
 bool cpuBreakLoop = false;
 int cpuNextEvent = 0;
 
+int gbaSaveType = 0; // used to remember the save type on reset
 bool intState = false;
 bool stopState = false;
 bool holdState = false;
@@ -76,11 +76,11 @@ static profile_segment* profilSegment = NULL;
 #endif
 
 #ifdef BKPT_SUPPORT
-uint8_t freezeWorkRAM[SIZE_WRAM];
-uint8_t freezeInternalRAM[SIZE_IRAM];
+uint8_t freezeWorkRAM[WORK_RAM_SIZE];
+uint8_t freezeInternalRAM[0x8000];
 uint8_t freezeVRAM[0x18000];
-uint8_t freezePRAM[SIZE_PRAM];
-uint8_t freezeOAM[SIZE_OAM];
+uint8_t freezePRAM[0x400];
+uint8_t freezeOAM[0x400];
 bool debugger_last;
 #endif
 
@@ -143,6 +143,8 @@ const uint8_t gamepakWaitState[4] = { 4, 3, 2, 8 };
 const uint8_t gamepakWaitState0[2] = { 2, 1 };
 const uint8_t gamepakWaitState1[2] = { 4, 1 };
 const uint8_t gamepakWaitState2[2] = { 8, 1 };
+const bool isInRom[16] = { false, false, false, false, false, false, false, false,
+    true, true, true, true, true, true, false, false };
 
 uint8_t memoryWait[16] = { 0, 0, 2, 0, 0, 0, 0, 0, 4, 4, 4, 4, 4, 4, 4, 0 };
 uint8_t memoryWait32[16] = { 0, 0, 5, 0, 0, 1, 1, 0, 7, 7, 9, 9, 13, 13, 4, 0 };
@@ -457,24 +459,7 @@ variable_desc saveGameStruct[] = {
     { NULL, 0 }
 };
 
-static int romSize = SIZE_ROM;
-
-void gbaUpdateRomSize(int size)
-{
-    // Only change memory block if new size is larger
-    if (size > romSize) {
-        romSize = size;
-
-        uint8_t* tmp = (uint8_t*)realloc(rom, SIZE_ROM);
-        rom = tmp;
-
-        uint16_t* temp = (uint16_t*)(rom + ((romSize + 1) & ~1));
-        for (int i = (romSize + 1) & ~1; i < SIZE_ROM; i += 2) {
-            WRITE16LE(temp, (i >> 1) & 0xFFFF);
-            temp++;
-        }
-    }
-}
+static int romSize = ROM_SIZE;
 
 #ifdef PROFILING
 void cpuProfil(profile_segment* seg)
@@ -495,8 +480,8 @@ inline int CPUUpdateTicks()
 {
     int cpuLoopTicks = lcdTicks;
 
-    //if (soundTicks < cpuLoopTicks)
-        //cpuLoopTicks = soundTicks;
+    if (soundTicks < cpuLoopTicks)
+        cpuLoopTicks = soundTicks;
 
     if (timer0On && (timer0Ticks < cpuLoopTicks)) {
         cpuLoopTicks = timer0Ticks;
@@ -595,7 +580,7 @@ void CPUUpdateRenderBuffers(bool force)
 #ifdef __LIBRETRO__
 #include <stddef.h>
 
-unsigned int CPUWriteState(uint8_t* data)
+unsigned int CPUWriteState(uint8_t* data, unsigned size)
 {
     uint8_t* orig = data;
 
@@ -609,13 +594,13 @@ unsigned int CPUWriteState(uint8_t* data)
     utilWriteIntMem(data, stopState);
     utilWriteIntMem(data, IRQTicks);
 
-    utilWriteMem(data, internalRAM, SIZE_IRAM);
-    utilWriteMem(data, paletteRAM, SIZE_PRAM);
-    utilWriteMem(data, workRAM, SIZE_WRAM);
-    utilWriteMem(data, vram, SIZE_VRAM);
-    utilWriteMem(data, oam, SIZE_OAM);
-    utilWriteMem(data, pix, SIZE_PIX);
-    utilWriteMem(data, ioMem, SIZE_IOMEM);
+    utilWriteMem(data, internalRAM, 0x8000);
+    utilWriteMem(data, paletteRAM, 0x400);
+    utilWriteMem(data, workRAM, WORK_RAM_SIZE);
+    utilWriteMem(data, vram, 0x20000);
+    utilWriteMem(data, oam, 0x400);
+    utilWriteMem(data, pix, 4 * 240 * 160);
+    utilWriteMem(data, ioMem, 0x400);
 
     eepromSaveGame(data);
     flashSaveGame(data);
@@ -625,7 +610,12 @@ unsigned int CPUWriteState(uint8_t* data)
     return (ptrdiff_t)data - (ptrdiff_t)orig;
 }
 
-bool CPUReadState(const uint8_t* data)
+bool CPUWriteMemState(char* memory, int available, long& reserved)
+{
+    return false;
+}
+
+bool CPUReadState(const uint8_t* data, unsigned size)
 {
     // Don't really care about version.
     int version = utilReadIntMem(data);
@@ -654,17 +644,17 @@ bool CPUReadState(const uint8_t* data)
         IRQTicks = 0;
     }
 
-    utilReadMem(internalRAM, data, SIZE_IRAM);
-    utilReadMem(paletteRAM, data, SIZE_PRAM);
-    utilReadMem(workRAM, data, SIZE_WRAM);
-    utilReadMem(vram, data, SIZE_VRAM);
-    utilReadMem(oam, data, SIZE_OAM);
-    utilReadMem(pix, data, SIZE_PIX);
-    utilReadMem(ioMem, data, SIZE_IOMEM);
+    utilReadMem(internalRAM, data, 0x8000);
+    utilReadMem(paletteRAM, data, 0x400);
+    utilReadMem(workRAM, data, WORK_RAM_SIZE);
+    utilReadMem(vram, data, 0x20000);
+    utilReadMem(oam, data, 0x400);
+    utilReadMem(pix, data, 4 * 240 * 160);
+    utilReadMem(ioMem, data, 0x400);
 
-    eepromReadGame(data);
-    flashReadGame(data);
-    soundReadGame(data);
+    eepromReadGame(data, version);
+    flashReadGame(data, version);
+    soundReadGame(data, version);
     rtcReadGame(data);
 
     //// Copypasta stuff ...
@@ -682,8 +672,10 @@ bool CPUReadState(const uint8_t* data)
 
     CPUUpdateWindow0();
     CPUUpdateWindow1();
-
+    gbaSaveType = 0;
     SetSaveType(saveType);
+    if (eepromInUse)
+        gbaSaveType = 3;
 
     systemSaveUpdateCounter = SYSTEM_SAVE_NOT_UPDATED;
     if (armState) {
@@ -716,13 +708,13 @@ static bool CPUWriteState(gzFile gzFile)
     // new to version 0.8
     utilWriteInt(gzFile, IRQTicks);
 
-    utilGzWrite(gzFile, internalRAM, SIZE_IRAM);
-    utilGzWrite(gzFile, paletteRAM, SIZE_PRAM);
-    utilGzWrite(gzFile, workRAM, SIZE_WRAM);
-    utilGzWrite(gzFile, vram, SIZE_VRAM);
-    utilGzWrite(gzFile, oam, SIZE_OAM);
-    utilGzWrite(gzFile, pix, SIZE_PIX);
-    utilGzWrite(gzFile, ioMem, SIZE_IOMEM);
+    utilGzWrite(gzFile, internalRAM, 0x8000);
+    utilGzWrite(gzFile, paletteRAM, 0x400);
+    utilGzWrite(gzFile, workRAM, WORK_RAM_SIZE);
+    utilGzWrite(gzFile, vram, 0x20000);
+    utilGzWrite(gzFile, oam, 0x400);
+    utilGzWrite(gzFile, pix, 4 * 241 * 162);
+    utilGzWrite(gzFile, ioMem, 0x400);
 
     eepromSaveGame(gzFile);
     flashSaveGame(gzFile);
@@ -830,16 +822,16 @@ static bool CPUReadState(gzFile gzFile)
         }
     }
 
-    utilGzRead(gzFile, internalRAM, SIZE_IRAM);
-    utilGzRead(gzFile, paletteRAM, SIZE_PRAM);
-    utilGzRead(gzFile, workRAM, SIZE_WRAM);
-    utilGzRead(gzFile, vram, SIZE_VRAM);
-    utilGzRead(gzFile, oam, SIZE_OAM);
+    utilGzRead(gzFile, internalRAM, 0x8000);
+    utilGzRead(gzFile, paletteRAM, 0x400);
+    utilGzRead(gzFile, workRAM, WORK_RAM_SIZE);
+    utilGzRead(gzFile, vram, 0x20000);
+    utilGzRead(gzFile, oam, 0x400);
     if (version < SAVE_GAME_VERSION_6)
         utilGzRead(gzFile, pix, 4 * 240 * 160);
     else
-        utilGzRead(gzFile, pix, SIZE_PIX);
-    utilGzRead(gzFile, ioMem, SIZE_IOMEM);
+        utilGzRead(gzFile, pix, 4 * 241 * 162);
+    utilGzRead(gzFile, ioMem, 0x400);
 
     if (skipSaveGameBattery) {
         // skip eeprom data
@@ -902,8 +894,10 @@ static bool CPUReadState(gzFile gzFile)
     CPUUpdateRenderBuffers(true);
     CPUUpdateWindow0();
     CPUUpdateWindow1();
-
+    gbaSaveType = 0;
     SetSaveType(saveType);
+    if (eepromInUse)
+        gbaSaveType = 3;
 
     systemSaveUpdateCounter = SYSTEM_SAVE_NOT_UPDATED;
     if (armState) {
@@ -946,7 +940,7 @@ bool CPUReadState(const char* file)
 bool CPUExportEepromFile(const char* fileName)
 {
     if (eepromInUse) {
-        FILE* file = utilOpenFile(fileName, "wb");
+        FILE* file = fopen(fileName, "wb");
 
         if (!file) {
             systemMessage(MSG_ERROR_CREATING_FILE, N_("Error creating file %s"),
@@ -970,8 +964,22 @@ bool CPUExportEepromFile(const char* fileName)
 
 bool CPUWriteBatteryFile(const char* fileName)
 {
-    if ((saveType) && (saveType != GBA_SAVE_NONE)) {
-        FILE* file = utilOpenFile(fileName, "wb");
+    if (gbaSaveType == 0) {
+        if (eepromInUse)
+            gbaSaveType = 3;
+        else
+            switch (saveType) {
+            case 1:
+                gbaSaveType = 1;
+                break;
+            case 2:
+                gbaSaveType = 2;
+                break;
+            }
+    }
+
+    if ((gbaSaveType) && (gbaSaveType != 5)) {
+        FILE* file = fopen(fileName, "wb");
 
         if (!file) {
             systemMessage(MSG_ERROR_CREATING_FILE, N_("Error creating file %s"),
@@ -980,19 +988,19 @@ bool CPUWriteBatteryFile(const char* fileName)
         }
 
         // only save if Flash/Sram in use or EEprom in use
-        if (!eepromInUse) {
-            if (saveType == GBA_SAVE_FLASH) { // save flash type
+        if (gbaSaveType != 3) {
+            if (gbaSaveType == 2) {
                 if (fwrite(flashSaveMemory, 1, flashSize, file) != (size_t)flashSize) {
                     fclose(file);
                     return false;
                 }
-            } else if (saveType == GBA_SAVE_SRAM) { // save sram type
+            } else {
                 if (fwrite(flashSaveMemory, 1, 0x8000, file) != 0x8000) {
                     fclose(file);
                     return false;
                 }
             }
-        } else { // save eeprom type
+        } else {
             if (fwrite(eepromData, 1, eepromSize, file) != (size_t)eepromSize) {
                 fclose(file);
                 return false;
@@ -1006,7 +1014,7 @@ bool CPUWriteBatteryFile(const char* fileName)
 bool CPUReadGSASnapshot(const char* fileName)
 {
     int i;
-    FILE* file = utilOpenFile(fileName, "rb");
+    FILE* file = fopen(fileName, "rb");
 
     if (!file) {
         systemMessage(MSG_CANNOT_OPEN_FILE, N_("Cannot open file %s"), fileName);
@@ -1018,21 +1026,21 @@ bool CPUReadGSASnapshot(const char* fileName)
 
     // long size = ftell(file);
     fseek(file, 0x0, SEEK_SET);
-    FREAD_UNCHECKED(&i, 1, 4, file);
+    fread(&i, 1, 4, file);
     fseek(file, i, SEEK_CUR); // Skip SharkPortSave
     fseek(file, 4, SEEK_CUR); // skip some sort of flag
-    FREAD_UNCHECKED(&i, 1, 4, file); // name length
+    fread(&i, 1, 4, file); // name length
     fseek(file, i, SEEK_CUR); // skip name
-    FREAD_UNCHECKED(&i, 1, 4, file); // desc length
+    fread(&i, 1, 4, file); // desc length
     fseek(file, i, SEEK_CUR); // skip desc
-    FREAD_UNCHECKED(&i, 1, 4, file); // notes length
+    fread(&i, 1, 4, file); // notes length
     fseek(file, i, SEEK_CUR); // skip notes
     int saveSize;
-    FREAD_UNCHECKED(&saveSize, 1, 4, file); // read length
+    fread(&saveSize, 1, 4, file); // read length
     saveSize -= 0x1c; // remove header size
     char buffer[17];
     char buffer2[17];
-    FREAD_UNCHECKED(buffer, 1, 16, file);
+    fread(buffer, 1, 16, file);
     buffer[16] = 0;
     for (i = 0; i < 16; i++)
         if (buffer[i] < 32)
@@ -1075,8 +1083,8 @@ bool CPUReadGSASPSnapshot(const char* fileName)
     const size_t footerpos = 0x42c, footersz = 4;
 
     char footer[footersz + 1], romname[namesz + 1], savename[namesz + 1];
-
-    FILE* file = utilOpenFile(fileName, "rb");
+    ;
+    FILE* file = fopen(fileName, "rb");
 
     if (!file) {
         systemMessage(MSG_CANNOT_OPEN_FILE, N_("Cannot open file %s"), fileName);
@@ -1085,7 +1093,7 @@ bool CPUReadGSASPSnapshot(const char* fileName)
 
     // read save name
     fseek(file, namepos, SEEK_SET);
-    FREAD_UNCHECKED(savename, 1, namesz, file);
+    fread(savename, 1, namesz, file);
     savename[namesz] = 0;
 
     memcpy(romname, &rom[0xa0], namesz);
@@ -1102,7 +1110,7 @@ bool CPUReadGSASPSnapshot(const char* fileName)
 
     // read footer tag
     fseek(file, footerpos, SEEK_SET);
-    FREAD_UNCHECKED(footer, 1, footersz, file);
+    fread(footer, 1, footersz, file);
     footer[footersz] = 0;
 
     if (memcmp(footer, gsvfooter, footersz)) {
@@ -1117,7 +1125,7 @@ bool CPUReadGSASPSnapshot(const char* fileName)
     }
 
     // Read up to 128k save
-    FREAD_UNCHECKED(flashSaveMemory, 1, FLASH_128K_SZ, file);
+    fread(flashSaveMemory, 1, FLASH_128K_SZ, file);
 
     fclose(file);
     CPUReset();
@@ -1129,7 +1137,7 @@ bool CPUWriteGSASnapshot(const char* fileName,
     const char* desc,
     const char* notes)
 {
-    FILE* file = utilOpenFile(fileName, "wb");
+    FILE* file = fopen(fileName, "wb");
 
     if (!file) {
         systemMessage(MSG_CANNOT_OPEN_FILE, N_("Cannot open file %s"), fileName);
@@ -1153,7 +1161,7 @@ bool CPUWriteGSASnapshot(const char* fileName,
     fwrite(buffer, 1, 4, file); // notes length
     fwrite(notes, 1, strlen(notes), file);
     int saveSize = 0x10000;
-    if (saveType == GBA_SAVE_FLASH)
+    if (gbaSaveType == 2)
         saveSize = flashSize;
     int totalSize = saveSize + 0x1c;
 
@@ -1186,7 +1194,7 @@ bool CPUWriteGSASnapshot(const char* fileName,
 
 bool CPUImportEepromFile(const char* fileName)
 {
-    FILE* file = utilOpenFile(fileName, "rb");
+    FILE* file = fopen(fileName, "rb");
 
     if (!file)
         return false;
@@ -1230,7 +1238,7 @@ bool CPUImportEepromFile(const char* fileName)
 
 bool CPUReadBatteryFile(const char* fileName)
 {
-    FILE* file = utilOpenFile(fileName, "rb");
+    FILE* file = fopen(fileName, "rb");
 
     if (!file)
         return false;
@@ -1271,7 +1279,6 @@ bool CPUReadBatteryFile(const char* fileName)
     return true;
 }
 
-#ifndef __LIBRETRO__
 bool CPUWritePNGFile(const char* fileName)
 {
     return utilWritePNGFile(fileName, 240, 160, pix);
@@ -1281,7 +1288,6 @@ bool CPUWriteBMPFile(const char* fileName)
 {
     return utilWriteBMPFile(fileName, 240, 160, pix);
 }
-#endif /* !__LIBRETRO__ */
 
 bool CPUIsZipFile(const char* file)
 {
@@ -1440,23 +1446,19 @@ void SetMapMasks()
 #ifdef BKPT_SUPPORT
     for (int i = 0; i < 16; i++) {
         map[i].size = map[i].mask + 1;
-        map[i].trace = NULL;
-        map[i].breakPoints = NULL;
-
-        if ((map[i].size >> 1) > 0) {
-            map[i].breakPoints = (uint8_t*)calloc(map[i].size >> 1, sizeof(uint8_t));
-            if (map[i].breakPoints == NULL) {
-                systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
-                    "TRACE");
-            }
-        }
-
-        if ((map[i].size >> 3) > 0) {
+        if (map[i].size > 0) {
             map[i].trace = (uint8_t*)calloc(map[i].size >> 3, sizeof(uint8_t));
-            if (map[i].trace == NULL) {
+
+            map[i].breakPoints = (uint8_t*)calloc(map[i].size >> 1, sizeof(uint8_t));
+
+            if (map[i].trace == NULL || map[i].breakPoints == NULL) {
                 systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
                     "TRACE");
             }
+        } else {
+            map[i].trace = NULL;
+            map[i].breakPoints = NULL;
+
         }
     }
     clearBreakRegList();
@@ -1465,20 +1467,20 @@ void SetMapMasks()
 
 int CPULoadRom(const char* szFile)
 {
-    romSize = SIZE_ROM;
+    romSize = ROM_SIZE;
     if (rom != NULL) {
         CPUCleanUp();
     }
 
     systemSaveUpdateCounter = SYSTEM_SAVE_NOT_UPDATED;
 
-    rom = (uint8_t*)malloc(SIZE_ROM);
+    rom = (uint8_t*)malloc(romSize);
     if (rom == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "ROM");
         return 0;
     }
-    workRAM = (uint8_t*)calloc(1, SIZE_WRAM);
+    workRAM = (uint8_t*)calloc(1, WORK_RAM_SIZE);
     if (workRAM == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "WRAM");
@@ -1489,7 +1491,7 @@ int CPULoadRom(const char* szFile)
 
 #ifndef NO_DEBUGGER
     if (CPUIsELF(szFile)) {
-        FILE* f = utilOpenFile(szFile, "rb");
+        FILE* f = fopen(szFile, "rb");
         if (!f) {
             systemMessage(MSG_ERROR_OPENING_IMAGE, N_("Error opening image %s"),
                 szFile);
@@ -1525,47 +1527,47 @@ int CPULoadRom(const char* szFile)
 
     uint16_t* temp = (uint16_t*)(rom + ((romSize + 1) & ~1));
     int i;
-    for (i = (romSize + 1) & ~1; i < SIZE_ROM; i += 2) {
+    for (i = (romSize + 1) & ~1; i < romSize; i += 2) {
         WRITE16LE(temp, (i >> 1) & 0xFFFF);
         temp++;
     }
 
-    bios = (uint8_t*)calloc(1, SIZE_BIOS);
+    bios = (uint8_t*)calloc(1, 0x4000);
     if (bios == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "BIOS");
         CPUCleanUp();
         return 0;
     }
-    internalRAM = (uint8_t*)calloc(1, SIZE_IRAM);
+    internalRAM = (uint8_t*)calloc(1, 0x8000);
     if (internalRAM == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "IRAM");
         CPUCleanUp();
         return 0;
     }
-    paletteRAM = (uint8_t*)calloc(1, SIZE_PRAM);
+    paletteRAM = (uint8_t*)calloc(1, 0x400);
     if (paletteRAM == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "PRAM");
         CPUCleanUp();
         return 0;
     }
-    vram = (uint8_t*)calloc(1, SIZE_VRAM);
+    vram = (uint8_t*)calloc(1, 0x20000);
     if (vram == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "VRAM");
         CPUCleanUp();
         return 0;
     }
-    oam = (uint8_t*)calloc(1, SIZE_OAM);
+    oam = (uint8_t*)calloc(1, 0x400);
     if (oam == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "OAM");
         CPUCleanUp();
         return 0;
     }
-
+    
     pix = (uint8_t*)calloc(1, 4 * 241 * 162);
     if (pix == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
@@ -1573,7 +1575,7 @@ int CPULoadRom(const char* szFile)
         CPUCleanUp();
         return 0;
     }
-    ioMem = (uint8_t*)calloc(1, SIZE_IOMEM);
+    ioMem = (uint8_t*)calloc(1, 0x400);
     if (ioMem == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "IO");
@@ -1591,20 +1593,20 @@ int CPULoadRom(const char* szFile)
 
 int CPULoadRomData(const char* data, int size)
 {
-    romSize = SIZE_ROM;
+    romSize = ROM_SIZE;
     if (rom != NULL) {
         CPUCleanUp();
     }
 
     systemSaveUpdateCounter = SYSTEM_SAVE_NOT_UPDATED;
 
-    rom = (uint8_t*)malloc(SIZE_ROM);
+    rom = (uint8_t*)malloc(romSize);
     if (rom == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "ROM");
         return 0;
     }
-    workRAM = (uint8_t*)calloc(1, SIZE_WRAM);
+    workRAM = (uint8_t*)calloc(1, WORK_RAM_SIZE);
     if (workRAM == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "WRAM");
@@ -1618,47 +1620,47 @@ int CPULoadRomData(const char* data, int size)
 
     uint16_t* temp = (uint16_t*)(rom + ((romSize + 1) & ~1));
     int i;
-    for (i = (romSize + 1) & ~1; i < SIZE_ROM; i += 2) {
+    for (i = (romSize + 1) & ~1; i < romSize; i += 2) {
         WRITE16LE(temp, (i >> 1) & 0xFFFF);
         temp++;
     }
 
-    bios = (uint8_t*)calloc(1, SIZE_BIOS);
+    bios = (uint8_t*)calloc(1, 0x4000);
     if (bios == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "BIOS");
         CPUCleanUp();
         return 0;
     }
-    internalRAM = (uint8_t*)calloc(1, SIZE_IRAM);
+    internalRAM = (uint8_t*)calloc(1, 0x8000);
     if (internalRAM == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "IRAM");
         CPUCleanUp();
         return 0;
     }
-    paletteRAM = (uint8_t*)calloc(1, SIZE_PRAM);
+    paletteRAM = (uint8_t*)calloc(1, 0x400);
     if (paletteRAM == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "PRAM");
         CPUCleanUp();
         return 0;
     }
-    vram = (uint8_t*)calloc(1, SIZE_VRAM);
+    vram = (uint8_t*)calloc(1, 0x20000);
     if (vram == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "VRAM");
         CPUCleanUp();
         return 0;
     }
-    oam = (uint8_t*)calloc(1, SIZE_OAM);
+    oam = (uint8_t*)calloc(1, 0x400);
     if (oam == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "OAM");
         CPUCleanUp();
         return 0;
     }
-
+    
     pix = (uint8_t*)calloc(1, 4 * 240 * 160);
     if (pix == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
@@ -1666,7 +1668,7 @@ int CPULoadRomData(const char* data, int size)
         CPUCleanUp();
         return 0;
     }
-    ioMem = (uint8_t*)calloc(1, SIZE_IOMEM);
+    ioMem = (uint8_t*)calloc(1, 0x400);
     if (ioMem == NULL) {
         systemMessage(MSG_OUT_OF_MEMORY, N_("Failed to allocate memory for %s"),
             "IO");
@@ -1714,27 +1716,9 @@ const char* GetSaveDotCodeFile()
     return saveDotCodeFile;
 }
 
-void ResetLoadDotCodeFile()
-{
-    if (loadDotCodeFile) {
-        free((char*)loadDotCodeFile);
-    }
-
-    loadDotCodeFile = strdup("");
-}
-
 void SetLoadDotCodeFile(const char* szFile)
 {
     loadDotCodeFile = strdup(szFile);
-}
-
-void ResetSaveDotCodeFile()
-{
-    if (saveDotCodeFile) {
-        free((char*)saveDotCodeFile);
-    }
-
-    saveDotCodeFile = strdup("");
 }
 
 void SetSaveDotCodeFile(const char* szFile)
@@ -2133,7 +2117,6 @@ void CPUSoftwareInterrupt(int comment)
         break;
     case 0x0A:
         BIOS_ArcTan2();
-        reg[3].I = 0x170;
         break;
     case 0x0B: {
         int len = (reg[2].I & 0x1FFFFF) >> 1;
@@ -2287,8 +2270,7 @@ void CPUSoftwareInterrupt(int comment)
         break;
     case 0x2A:
         BIOS_SndDriverJmpTableCopy();
-        // let it go, because we don't really emulate this function
-	/* fallthrough */
+    // let it go, because we don't really emulate this function
     default:
 #ifdef GBA_LOGGING
         if (systemVerbose & VERBOSE_SWI) {
@@ -2886,8 +2868,8 @@ void CPUUpdateRegister(uint32_t address, uint16_t value)
     case 0x7c:
     case 0x80:
     case 0x84:
-        soundEvent8(address & 0xFF, (uint8_t)(value & 0xFF));
-        soundEvent8((address & 0xFF) + 1, (uint8_t)(value >> 8));
+        soundEvent(address & 0xFF, (uint8_t)(value & 0xFF));
+        soundEvent((address & 0xFF) + 1, (uint8_t)(value >> 8));
         break;
     case 0x82:
     case 0x88:
@@ -2903,7 +2885,7 @@ void CPUUpdateRegister(uint32_t address, uint16_t value)
     case 0x9a:
     case 0x9c:
     case 0x9e:
-        soundEvent16(address & 0xFF, value);
+        soundEvent(address & 0xFF, value);
         break;
     case 0xB0:
         DM0SAD_L = value;
@@ -3075,27 +3057,11 @@ void CPUUpdateRegister(uint32_t address, uint16_t value)
         cpuNextEvent = cpuTotalTicks;
         break;
 
-    case COMM_SIOCNT:
 #ifndef NO_LINK
+    case COMM_SIOCNT:
         StartLink(value);
-#else
-        if (!ioMem)
-            return;
-
-        if (value & 0x80) {
-            value &= 0xff7f;
-            if (value & 1 && (value & 0x4000)) {
-                UPDATE_REG(COMM_SIOCNT, 0xFF);
-                IF |= 0x80;
-                UPDATE_REG(0x202, IF);
-                value &= 0x7f7f;
-            }
-        }
-        UPDATE_REG(COMM_SIOCNT, value);
-#endif
         break;
 
-#ifndef NO_LINK
     case COMM_SIODATA8:
         UPDATE_REG(COMM_SIODATA8, value);
         break;
@@ -3110,19 +3076,11 @@ void CPUUpdateRegister(uint32_t address, uint16_t value)
         UPDATE_REG(0x132, value & 0xC3FF);
         break;
 
-
-    case COMM_RCNT:
 #ifndef NO_LINK
+    case COMM_RCNT:
         StartGPLink(value);
-#else
-        if (!ioMem)
-            return;
-
-        UPDATE_REG(COMM_RCNT, value);
-#endif
         break;
 
-#ifndef NO_LINK
     case COMM_JOYCNT: {
         uint16_t cur = READ16LE(&ioMem[COMM_JOYCNT]);
 
@@ -3296,6 +3254,7 @@ void CPUInit(const char* biosFileName, bool useBiosFile)
         cpuBiosSwapped = true;
     }
 #endif
+    gbaSaveType = 0;
     eepromInUse = 0;
     useBios = false;
 
@@ -3383,50 +3342,74 @@ void CPUInit(const char* biosFileName, bool useBiosFile)
 void SetSaveType(int st)
 {
     switch (st) {
-    case GBA_SAVE_AUTO:
+    case 0: // automatic
         cpuSramEnabled = true;
         cpuFlashEnabled = true;
         cpuEEPROMEnabled = true;
         cpuEEPROMSensorEnabled = false;
+        gbaSaveType = 0;
         cpuSaveGameFunc = flashSaveDecide;
         break;
-    case GBA_SAVE_EEPROM:
+    case 1: // EEPROM
+        eepromReset();
         cpuSramEnabled = false;
         cpuFlashEnabled = false;
         cpuEEPROMEnabled = true;
         cpuEEPROMSensorEnabled = false;
+        gbaSaveType = 3;
+        // EEPROM usage is automatically detected
         break;
-    case GBA_SAVE_SRAM:
+    case 2: // SRAM
         cpuSramEnabled = true;
         cpuFlashEnabled = false;
         cpuEEPROMEnabled = false;
         cpuEEPROMSensorEnabled = false;
         cpuSaveGameFunc = sramDelayedWrite; // to insure we detect the write
+        gbaSaveType = 1;
         break;
-    case GBA_SAVE_FLASH:
+    case 3: // FLASH
+        flashReset();
         cpuSramEnabled = false;
         cpuFlashEnabled = true;
         cpuEEPROMEnabled = false;
         cpuEEPROMSensorEnabled = false;
         cpuSaveGameFunc = flashDelayedWrite; // to insure we detect the write
+        gbaSaveType = 2;
         break;
-    case GBA_SAVE_EEPROM_SENSOR:
+    case 4: // EEPROM+Sensor
         cpuSramEnabled = false;
         cpuFlashEnabled = false;
         cpuEEPROMEnabled = true;
         cpuEEPROMSensorEnabled = true;
+        // EEPROM usage is automatically detected
+        gbaSaveType = 3;
         break;
-    case GBA_SAVE_NONE:
+    case 5: // NONE
         cpuSramEnabled = false;
         cpuFlashEnabled = false;
         cpuEEPROMEnabled = false;
         cpuEEPROMSensorEnabled = false;
+        // no save at all
+        gbaSaveType = 5;
         break;
     }
 }
 
 void CPUReset()
 {
+    if (gbaSaveType == 0) {
+        if (eepromInUse)
+            gbaSaveType = 3;
+        else
+            switch (saveType) {
+            case 2:
+                gbaSaveType = 1;
+                break;
+            case 3:
+                gbaSaveType = 2;
+                break;
+            }
+    }
     switch (CheckEReaderRegion()) {
     case 1: //US
         EReaderWriteMemory(0x8009134, 0x46C0DFE0);
@@ -3442,15 +3425,15 @@ void CPUReset()
     // clean registers
     memset(&reg[0], 0, sizeof(reg));
     // clean OAM
-    memset(oam, 0, SIZE_OAM);
+    memset(oam, 0, 0x400);
     // clean palette
-    memset(paletteRAM, 0, SIZE_PRAM);
+    memset(paletteRAM, 0, 0x400);
     // clean picture
-    memset(pix, 0, SIZE_PIX);
+    memset(pix, 0, 4 * 160 * 240);
     // clean vram
-    memset(vram, 0, SIZE_VRAM);
+    memset(vram, 0, 0x20000);
     // clean io memory
-    memset(ioMem, 0, SIZE_IOMEM);
+    memset(ioMem, 0, 0x400);
 
     DISPCNT = 0x0080;
     DISPSTAT = 0x0000;
@@ -3650,8 +3633,6 @@ void CPUReset()
             BIOS_RegisterRamReset(0xfe);
     }
 
-    flashReset();
-    eepromReset();
     SetSaveType(saveType);
 
     ARM_PREFETCH;
@@ -3686,40 +3667,6 @@ void CPUInterrupt()
     biosProtected[1] = 0xc0;
     biosProtected[2] = 0x5e;
     biosProtected[3] = 0xe5;
-}
-
-static uint32_t joy;
-static bool has_frames;
-
-static void gbaUpdateJoypads(void)
-{
-    // update joystick information
-    if (systemReadJoypads())
-        // read default joystick
-        joy = systemReadJoypad(-1);
-
-    P1 = 0x03FF ^ (joy & 0x3FF);
-    systemUpdateMotionSensor();
-    UPDATE_REG(0x130, P1);
-    uint16_t P1CNT = READ16LE(((uint16_t*)&ioMem[0x132]));
-
-    // this seems wrong, but there are cases where the game
-    // can enter the stop state without requesting an IRQ from
-    // the joypad.
-    if ((P1CNT & 0x4000) || stopState) {
-        uint16_t p1 = (0x3FF ^ P1) & 0x3FF;
-        if (P1CNT & 0x8000) {
-            if (p1 == (P1CNT & 0x3FF)) {
-                IF |= 0x1000;
-                UPDATE_REG(0x202, IF);
-            }
-        } else {
-            if (p1 & P1CNT) {
-                IF |= 0x1000;
-                UPDATE_REG(0x202, IF);
-            }
-        }
-    }
 }
 
 void CPULoop(int ticks)
@@ -3786,8 +3733,6 @@ void CPULoop(int ticks)
 
             lcdTicks -= clockTicks;
 
-            soundTicks += clockTicks;
-
             if (lcdTicks <= 0) {
                 if (DISPSTAT & 1) { // V-BLANK
                     // if in V-Blank mode, keep computing...
@@ -3817,34 +3762,8 @@ void CPULoop(int ticks)
                     }
                 } else {
                     int framesToSkip = systemFrameSkip;
-
-                    static bool speedup_throttle_set = false;
-                    bool turbo_button_pressed        = (joy >> 10) & 1;
-#ifndef __LIBRETRO__
-                    static uint32_t last_throttle;
-
-                    if (turbo_button_pressed) {
-                        if (speedup_frame_skip)
-                            framesToSkip = speedup_frame_skip;
-                        else {
-                            if (!speedup_throttle_set && throttle != speedup_throttle) {
-                                last_throttle = throttle;
-                                soundSetThrottle(speedup_throttle);
-                                speedup_throttle_set = true;
-                            }
-
-                            if (speedup_throttle_frame_skip)
-                                framesToSkip += std::ceil(double(speedup_throttle) / 100.0) - 1;
-                        }
-                    }
-                    else if (speedup_throttle_set) {
-                        soundSetThrottle(last_throttle);
-                        speedup_throttle_set = false;
-                    }
-#else
-                    if (turbo_button_pressed)
-                        framesToSkip = 9;
-#endif
+                    if (speedup)
+                        framesToSkip = 9; // try 6 FPS during speedup
 
                     if (DISPSTAT & 2) {
                         // if in H-Blank, leave it and move to drawing mode
@@ -3870,17 +3789,38 @@ void CPULoop(int ticks)
                                 lastTime = time;
                                 count = 0;
                             }
+                            uint32_t joy = 0;
+                            // update joystick information
+                            if (systemReadJoypads())
+                                // read default joystick
+                                joy = systemReadJoypad(-1);
+                            P1 = 0x03FF ^ (joy & 0x3FF);
+                            systemUpdateMotionSensor();
+                            UPDATE_REG(0x130, P1);
+                            uint16_t P1CNT = READ16LE(((uint16_t*)&ioMem[0x132]));
+                            // this seems wrong, but there are cases where the game
+                            // can enter the stop state without requesting an IRQ from
+                            // the joypad.
+                            if ((P1CNT & 0x4000) || stopState) {
+                                uint16_t p1 = (0x3FF ^ P1) & 0x3FF;
+                                if (P1CNT & 0x8000) {
+                                    if (p1 == (P1CNT & 0x3FF)) {
+                                        IF |= 0x1000;
+                                        UPDATE_REG(0x202, IF);
+                                    }
+                                } else {
+                                    if (p1 & P1CNT) {
+                                        IF |= 0x1000;
+                                        UPDATE_REG(0x202, IF);
+                                    }
+                                }
+                            }
 
                             uint32_t ext = (joy >> 10);
                             // If no (m) code is enabled, apply the cheats at each LCDline
                             if ((cheatsEnabled) && (mastercode == 0))
                                 remainingTicks += cheatsCheckKeys(P1 ^ 0x3FF, ext);
-
-                            speedup = false;
-
-                            if (ext & 1 && !speedup_throttle_set)
-                                speedup = true;
-
+                            speedup = (ext & 1) ? true : false;
                             capture = (ext & 2) ? true : false;
 
                             if (capture && !capturePrevious) {
@@ -3897,20 +3837,13 @@ void CPULoop(int ticks)
                                 UPDATE_REG(0x202, IF);
                             }
                             CPUCheckDMA(1, 0x0f);
-
-                            psoundTickfn();
-
                             if (frameCount >= framesToSkip) {
                                 systemDrawScreen();
                                 frameCount = 0;
-                            } else {
+                            } else
                                 frameCount++;
-                                systemSendScreen();
-                            }
                             if (systemPauseOnFrame())
                                 ticks = 0;
-
-                            has_frames = true;
                         }
 
                         UPDATE_REG(0x04, DISPSTAT);
@@ -4038,12 +3971,11 @@ void CPULoop(int ticks)
             // we shouldn't be doing sound in stop state, but we loose synchronization
             // if sound is disabled, so in stop state, soundTick will just produce
             // mute sound
-
-            //soundTicks -= clockTicks;
-            //if (soundTicks <= 0) {
-                //psoundTickfn();
-                //soundTicks += SOUND_CLOCK_TICKS;
-            //}
+            soundTicks -= clockTicks;
+            if (soundTicks <= 0) {
+                psoundTickfn();
+                soundTicks += SOUND_CLOCK_TICKS;
+            }
 
             if (!stopState) {
                 if (timer0On) {
@@ -4248,8 +4180,7 @@ void CPULoop(int ticks)
             if (cpuNextEvent > ticks)
                 cpuNextEvent = ticks;
 
-            // end loop when a frame is done
-            if (ticks <= 0 || cpuBreakLoop || has_frames)
+            if (ticks <= 0 || cpuBreakLoop)
                 break;
         }
     }
@@ -4259,39 +4190,13 @@ void CPULoop(int ticks)
 #endif
 }
 
-void gbaEmulate(int ticks)
-{
-    has_frames = false;
-
-    // Read and process inputs
-    gbaUpdateJoypads();
-
-    // Runs nth number of ticks till vblank, outputs audio
-    // then the video frames.
-    // sanity check:
-    // wrapped in loop in case frames has not been written yet
-    do {
-        CPULoop(ticks);
-    } while (!has_frames);
-}
-
 struct EmulatedSystem GBASystem = {
     // emuMain
-    gbaEmulate,
+    CPULoop,
     // emuReset
     CPUReset,
     // emuCleanUp
     CPUCleanUp,
-#ifdef __LIBRETRO__
-    NULL,           // emuReadBattery
-    NULL,           // emuReadState
-    CPUReadState,   // emuReadState
-    CPUWriteState,  // emuWriteState
-    NULL,           // emuReadMemState
-    NULL,           // emuWriteMemState
-    NULL,           // emuWritePNG
-    NULL,           // emuWriteBMP
-#else
     // emuReadBattery
     CPUReadBatteryFile,
     // emuWriteBattery
@@ -4300,22 +4205,25 @@ struct EmulatedSystem GBASystem = {
     CPUReadState,
     // emuWriteState
     CPUWriteState,
-    // emuReadMemState
+// emuReadMemState
+#ifdef __LIBRETRO__
+    NULL,
+#else
     CPUReadMemState,
+#endif
     // emuWriteMemState
     CPUWriteMemState,
     // emuWritePNG
     CPUWritePNGFile,
     // emuWriteBMP
     CPUWriteBMPFile,
-#endif
     // emuUpdateCPSR
     CPUUpdateCPSR,
     // emuHasDebugger
     true,
-    // emuCount
+// emuCount
 #ifdef FINAL_VERSION
-    300000
+    250000
 #else
     5000
 #endif

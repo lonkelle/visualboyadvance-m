@@ -89,7 +89,7 @@
                   <orient>wxHORIZONTAL</orient>
                   <object class="sizeritem">
                     <object class="wxStaticText" name="BootRomLab">
-                      <label>BIOS file :</label>
+                      <label>Bios file :</label>
                     </object>
                     <flag>wxALL|wxALIGN_CENTRE_VERTICAL</flag>
                     <border>5</border>
@@ -101,27 +101,6 @@
                     </object>
                     <option>1</option>
                     <flag>wxALL|wxEXPAND</flag>
-                    <border>5</border>
-                  </object>
-                </object>
-              </object>
-              <object class="sizeritem">
-                <flag>wxALL|wxEXPAND</flag>
-                <border>5</border>
-                <object class="wxBoxSizer">
-                  <orient>wxHORIZONTAL</orient>
-                  <object class="sizeritem">
-                    <object class="wxStaticText">
-                      <label>Current BIOS file :</label>
-                    </object>
-                    <flag>wxALL|wxALIGN_CENTRE_VERTICAL</flag>
-                    <border>5</border>
-                  </object>
-                  <object class="sizeritem">
-                    <object class="wxStaticText" name="BiosFile">
-                      <label>(None)</label>
-                    </object>
-                    <flag>wxALL|wxALIGN_CENTRE_VERTICAL</flag>
                     <border>5</border>
                   </object>
                 </object>

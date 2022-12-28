@@ -5,9 +5,33 @@
 // The value is the symbolic name of the key pressed
 // Supports manual clearing (bs), multiple keys in widget, automatic tab on key
 
-#include "config/game-control.h"
 #include "wx/keyedit.h"
 #include "wx/sdljoy.h"
+
+typedef struct wxJoyKeyBinding {
+    int key; // key code; listed first for easy static init
+    int mod; // modifier flags
+    int joy; // joystick # (starting at 1)
+    // if joy is non-0, key = control number, and mod = control type
+} wxJoyKeyBinding;
+
+typedef std::vector<wxJoyKeyBinding> wxJoyKeyBinding_v;
+
+// joystick control types
+// mod for joysticks
+enum { WXJB_AXIS_PLUS,
+    WXJB_AXIS_MINUS,
+    WXJB_BUTTON,
+    WXJB_HAT_FIRST,
+    WXJB_HAT_N = WXJB_HAT_FIRST,
+    WXJB_HAT_S,
+    WXJB_HAT_W,
+    WXJB_HAT_E,
+    WXJB_HAT_NW,
+    WXJB_HAT_NE,
+    WXJB_HAT_SW,
+    WXJB_HAT_SE,
+    WXJB_HAT_LAST = WXJB_HAT_SE };
 
 class wxJoyKeyTextCtrl : public wxKeyTextCtrl {
 public:
@@ -19,20 +43,24 @@ public:
     }
     virtual ~wxJoyKeyTextCtrl(){};
 
+    // key is event.GetControlIndex(), and joy is event.GetJoy() + 1
+    // mod is derived from GetControlValue() and GetControlType():
+    // convert wxSDLJoyEvent's type+val into mod (WXJB_*)
+    static int DigitalButton(wxSDLJoyEvent& event);
     // convert mod+key to accel string, separated by -
-    static wxString ToString(int mod, int key, int joy, bool isConfig = false);
+    static wxString ToString(int mod, int key, int joy);
+    // convert multiple keys, separated by multikey
+    static wxString ToString(wxJoyKeyBinding_v keys, wxChar sep = wxT(','));
     // parses single key string into mod+key
     static bool FromString(const wxString& s, int& mod, int& key, int& joy);
-    // parse a single key in given wxChar array up to given len
-    static bool ParseString(const wxString& s, int len, int& mod, int& key, int& joy);
     // parse multi-key string into array
     // returns empty array on parse errors
-    static wxAcceleratorEntry_v ToAccelFromString(const wxString& s, wxChar sep = wxT(','));
-    // convert multiple keys, separated by multikey
-    static wxString FromAccelToString(wxAcceleratorEntry_v keys, wxChar sep = wxT(','), bool isConfig = false);
+    static wxJoyKeyBinding_v FromString(const wxString& s, wxChar sep = wxT(','));
+    // parse a single key in given wxChar array up to given len
+    static bool ParseString(const wxString& s, int len, int& mod, int& key, int& joy);
 
 protected:
-    void OnJoy(wxJoyEvent&);
+    void OnJoy(wxSDLJoyEvent&);
 
     DECLARE_DYNAMIC_CLASS(wxJoyKeyTextCtrl);
     DECLARE_EVENT_TABLE();
@@ -41,30 +69,29 @@ protected:
 // A simple copy-only validator
 class wxJoyKeyValidator : public wxValidator {
 public:
-    wxJoyKeyValidator(const config::GameControl v)
+    wxJoyKeyValidator(wxJoyKeyBinding_v* v)
         : wxValidator()
-        , val_(v)
+        , val(v)
     {
     }
     wxJoyKeyValidator(const wxJoyKeyValidator& v)
         : wxValidator()
-        , val_(v.val_)
+        , val(v.val)
     {
     }
-    wxObject* Clone() const override
+    wxObject* Clone() const
     {
-        return new wxJoyKeyValidator(val_);
+        return new wxJoyKeyValidator(val);
     }
-    bool TransferToWindow() override;
-    bool TransferFromWindow() override;
-    bool Validate(wxWindow* p) override
+    bool TransferToWindow();
+    bool TransferFromWindow();
+    bool Validate(wxWindow* p)
     {
-        (void)p; // unused params
         return true;
     }
 
 protected:
-    const config::GameControl val_;
+    wxJoyKeyBinding_v* val;
 
     DECLARE_CLASS(wxJoyKeyValidator)
 };

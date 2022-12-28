@@ -1,16 +1,7 @@
 #ifndef UTIL_H
 #define UTIL_H
 
-#include <string>
 #include "System.h"
-
-#ifdef _WIN32
-#define FILE_SEP '\\'
-#else // MacOS, Unix
-#define FILE_SEP '/'
-#endif
-
-#define FREAD_UNCHECKED(A,B,C,D) (void)(fread(A,B,C,D) + 1)
 
 enum IMAGE_TYPE { IMAGE_UNKNOWN = -1, IMAGE_GBA = 0, IMAGE_GB = 1 };
 
@@ -22,14 +13,9 @@ typedef struct {
 
 bool FileExists(const char *filename);
 
-std::string get_xdg_user_config_home();
-std::string get_xdg_user_data_home();
-
 void utilReadScreenPixels(uint8_t *dest, int w, int h);
-#ifndef __LIBRETRO__
 bool utilWritePNGFile(const char *, int, int, uint8_t *);
 bool utilWriteBMPFile(const char *, int, int, uint8_t *);
-#endif
 void utilApplyIPS(const char *ips, uint8_t **rom, int *size);
 bool utilIsGBAImage(const char *);
 bool utilIsGBImage(const char *);
@@ -55,8 +41,6 @@ int utilReadIntMem(const uint8_t *&data);
 void utilReadMem(void *buf, const uint8_t *&data, unsigned size);
 void utilReadDataMem(const uint8_t *&data, variable_desc *);
 #else
-FILE* utilOpenFile(const char *filename, const char *mode);
-gzFile utilAutoGzOpen(const char *file, const char *mode);
 gzFile utilGzOpen(const char *file, const char *mode);
 gzFile utilMemGzOpen(char *memory, int available, const char *mode);
 int utilGzWrite(gzFile file, const voidp buffer, unsigned int len);

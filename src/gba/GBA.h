@@ -3,7 +3,6 @@
 
 #include "../common/Types.h"
 #include "../System.h"
-#include "../Util.h"
 
 const uint64_t TICKS_PER_SECOND = 16777216;
 
@@ -18,42 +17,6 @@ const uint64_t TICKS_PER_SECOND = 16777216;
 #define SAVE_GAME_VERSION_9 9
 #define SAVE_GAME_VERSION_10 10
 #define SAVE_GAME_VERSION SAVE_GAME_VERSION_10
-
-#define gbaWidth  240
-#define gbaHeight 160
-
-enum {
-    GBA_SAVE_AUTO = 0,
-    GBA_SAVE_EEPROM,
-    GBA_SAVE_SRAM,
-    GBA_SAVE_FLASH,
-    GBA_SAVE_EEPROM_SENSOR,
-    GBA_SAVE_NONE
-};
-
-enum {
-    SIZE_SRAM      = 32768,
-    SIZE_FLASH512   = 65536,
-    SIZE_FLASH1M   = 131072,
-    SIZE_EEPROM_512 = 512,
-    SIZE_EEPROM_8K = 8192
-};
-
-enum {
-    SIZE_ROM   = 0x2000000,
-    SIZE_BIOS  = 0x0004000,
-    SIZE_IRAM  = 0x0008000,
-    SIZE_WRAM  = 0x0040000,
-    SIZE_PRAM  = 0x0000400,
-    SIZE_VRAM  = 0x0020000,
-    SIZE_OAM   = 0x0000400,
-    SIZE_IOMEM = 0x0000400,
-#ifndef __LIBRETRO__
-    SIZE_PIX   = (4 * 241 * 162)
-#else
-    SIZE_PIX   = (4 * 240 * 160)
-#endif
-};
 
 typedef struct {
     uint8_t* address;
@@ -136,7 +99,7 @@ extern void CPUUpdateRenderBuffers(bool);
 extern bool CPUReadMemState(char*, int);
 extern bool CPUWriteMemState(char*, int);
 #ifdef __LIBRETRO__
-extern bool CPUReadState(const uint8_t*);
+extern bool CPUReadState(const uint8_t*, unsigned);
 extern unsigned int CPUWriteState(uint8_t* data, unsigned int size);
 #else
 extern bool CPUReadState(const char*);
@@ -162,13 +125,8 @@ extern void cpuEnableProfiling(int hz);
 
 const char* GetLoadDotCodeFile();
 const char* GetSaveDotCodeFile();
-void ResetLoadDotCodeFile();
 void SetLoadDotCodeFile(const char* szFile);
-void ResetSaveDotCodeFile();
 void SetSaveDotCodeFile(const char* szFile);
-
-// Updates romSize and realloc rom pointer if needed after soft-patching
-void gbaUpdateRomSize(int size);
 
 extern struct EmulatedSystem GBASystem;
 
@@ -194,6 +152,9 @@ extern struct EmulatedSystem GBASystem;
 #define R13_FIQ 42
 #define R14_FIQ 43
 #define SPSR_FIQ 44
+
+#define WORK_RAM_SIZE 0x40000
+#define ROM_SIZE      0x2000000
 
 #include "Cheats.h"
 #include "EEprom.h"

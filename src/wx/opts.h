@@ -1,21 +1,9 @@
 #ifndef WX_OPTS_H
 #define WX_OPTS_H
 
-#include <map>
-
-#include <wx/string.h>
-#include <wx/vidmode.h>
-
-#include "config/game-control.h"
-#include "config/user-input.h"
-#include "wx/keyedit.h"
-
-// Forward declaration.
-class wxFileHistory;
-
-// Default joystick bindings.
-extern const std::map<config::GameControl, std::set<config::UserInput>>
-    kDefaultBindings;
+#define NUM_KEYS 21
+extern const wxString joynames[NUM_KEYS];
+extern wxJoyKeyBinding defkeys[NUM_KEYS * 2]; // keyboard + joystick defaults
 
 extern struct opts_t {
     opts_t();
@@ -24,8 +12,13 @@ extern struct opts_t {
 
     /// Display
     bool bilinear;
+    int filter;
+    wxString filter_plugin;
+    int ifb;
     wxVideoMode fs_mode;
     int max_threads;
+    int render_method;
+    double video_scale;
     bool retain_aspect;
     bool keep_on_top;
 
@@ -41,8 +34,6 @@ extern struct opts_t {
     wxString gba_bios;
     int gba_link_type;
     wxString link_host;
-    wxString server_ip;
-    uint32_t link_port;
     int link_proto;
     bool link_auto;
     wxString gba_rom_dir;
@@ -50,6 +41,7 @@ extern struct opts_t {
     /// General
     bool autoload_state, autoload_cheats;
     wxString battery_dir;
+    int onlineupdates;
     long last_update;
     wxString last_updated_filename;
     bool recent_freeze;
@@ -60,8 +52,7 @@ extern struct opts_t {
     int statusbar;
 
     /// Joypad
-    std::map<config::GameControl, std::set<config::UserInput>>
-        game_control_bindings;
+    wxJoyKeyBinding_v joykey_bindings[4][NUM_KEYS];
     int autofire_rate;
     int default_stick;
 
@@ -88,14 +79,29 @@ extern struct opts_t {
     /// Recent
     wxFileHistory* recent;
 
-    /// UI Config
-    bool hide_menu_bar;
-
     /// wxWindows
     // wxWidgets-generated options (opaque)
 } gopts;
 
-extern const wxAcceleratorEntryUnicode default_accels[];
+extern struct opt_desc {
+    wxString opt;
+    const char* cmd;
+    wxString desc;
+    wxString* stropt;
+    int* intopt;
+    wxString enumvals;
+    double min, max;
+    bool* boolopt;
+    double* doubleopt;
+    // current configured value
+    wxString curstr;
+    int curint;
+    double curdouble;
+#define curbool curint
+} opts[];
+extern const int num_opts;
+
+extern const wxAcceleratorEntry default_accels[];
 extern const int num_def_accels;
 
 // call to load config (once)
@@ -106,6 +112,6 @@ void load_opts();
 // will detect changes and write config if necessary
 void update_opts();
 // returns true if option name correct; prints error if val invalid
-void opt_set(const wxString& name, const wxString& val);
+bool opt_set(const wxString& name, const wxString& val);
 
 #endif /* WX_OPTS_H */

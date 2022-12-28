@@ -8,14 +8,10 @@
 #ifndef __GNUC__
 #define HAVE_DECL_GETOPT 0
 #define __STDC__ 1
-#ifndef __LIBRETRO__
 #include "getopt.h"
-#endif
 #else // ! __GNUC__
 #define HAVE_DECL_GETOPT 1
-#ifndef __LIBRETRO__
 #include <getopt.h>
-#endif
 #endif // ! __GNUC__
 
 #define MAX_CHEATS 16384
@@ -25,8 +21,6 @@ extern bool mirroringEnable;
 extern bool parseDebug;
 extern bool speedHack;
 extern bool speedup;
-extern bool gbaLcdFilter;
-extern bool gbLcdFilter;
 extern char *rewindMemory;
 extern const char *aviRecordDir;
 extern const char *biosFileNameGB;
@@ -53,11 +47,10 @@ extern int autoSaveLoadCheatList;
 extern int aviRecording;
 extern int captureFormat;
 extern int cheatsEnabled;
-extern int colorizerHack;
 extern int cpuDisableSfx;
 extern int cpuSaveType;
 extern int dinputKeyFocus;
-extern int enableMMX;
+extern int disableMMX;
 extern int disableStatusMessages;
 extern int dsoundDisableHardwareAcceleration;
 extern int filterHeight;
@@ -135,23 +128,16 @@ extern int useBiosFileGBC;
 extern int videoOption;
 extern int vsync;
 extern int wasPaused;
-extern uint32_t windowHeight;
-extern int windowMaximized;
 extern int windowPositionX;
 extern int windowPositionY;
-extern uint32_t windowWidth;
+extern int winFlashSize;
 extern int winGbBorderOn;
 extern int winGbPrinterEnabled;
 extern int winPauseNextFrame;
 extern uint32_t autoFrameSkipLastTime;
 extern uint32_t movieLastJoypad;
 extern uint32_t movieNextJoypad;
-extern uint32_t throttle;
-extern uint32_t speedup_throttle;
-extern uint32_t speedup_frame_skip;
-extern bool speedup_throttle_frame_skip;
-extern bool allowKeyboardBackgroundInput;
-extern bool allowJoystickBackgroundInput;
+extern int throttle;
 
 extern int preparedCheats;
 extern const char *preparedCheatCodes[MAX_CHEATS];
@@ -172,7 +158,7 @@ extern const char *saveDir;
 extern const char *batteryDir;
 
 // Directory within homedir to use for default save location.
-#define DOT_DIR "visualboyadvance-m"
+#define DOT_DIR ".vbam"
 
 void SetHome(char *_arg0);
 void SaveConfigFile();

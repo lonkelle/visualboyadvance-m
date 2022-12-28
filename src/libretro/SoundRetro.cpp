@@ -33,7 +33,6 @@ void SoundRetro::write(uint16_t* finalWave, int length)
 
 bool SoundRetro::init(long sampleRate)
 {
-    (void)sampleRate; // unused param
     return true;
 }
 
@@ -51,9 +50,4 @@ void SoundRetro::resume()
 
 void SoundRetro::reset()
 {
-}
-
-void SoundRetro::setThrottle(unsigned short throttle)
-{
-    (void)throttle; // unused param
 }

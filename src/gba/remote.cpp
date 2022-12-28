@@ -349,7 +349,6 @@ void debuggerDontBreak(int n, char** args)
 
 void debuggerDontBreakClear(int n, char** args)
 {
-    (void)args; // unused params
     if (n == 1) {
         debuggerNumOfDontBreak = 0;
         {
@@ -783,7 +782,7 @@ unsigned int AddressToGBA(uint8_t* mem)
 
 void debuggerDoSearch()
 {
-    unsigned int count = 0;
+    int count = 0;
 
     while (true) {
         unsigned int final = SearchStart + SearchLength - 1;
@@ -1883,8 +1882,6 @@ void debuggerSymbols(int argc, char** argv)
 
 void debuggerWhere(int n, char** args)
 {
-    (void)n; // unused params
-    (void)args; // unused params
     void elfPrintCallChain(uint32_t);
     elfPrintCallChain(armNextPC);
 }
@@ -1961,7 +1958,6 @@ void debuggerVar(int n, char** args)
 
 bool debuggerBreakOnExecution(uint32_t address, uint8_t state)
 {
-    (void)state; // unused params
     if (dontBreakNow)
         return false;
     if (debuggerInDB(address))
@@ -1979,7 +1975,6 @@ bool debuggerBreakOnExecution(uint32_t address, uint8_t state)
 
 bool debuggerBreakOnRead(uint32_t address, int size)
 {
-    (void)size; // unused params
     if (dontBreakNow)
         return false;
     if (debuggerInDB(armState ? reg[15].I - 4 : reg[15].I - 2))
@@ -2001,8 +1996,6 @@ bool debuggerBreakOnRead(uint32_t address, int size)
 
 bool debuggerBreakOnWrite(uint32_t address, uint32_t value, int size)
 {
-    (void)value; // unused params
-    (void)size; // unused params
     if (dontBreakNow)
         return false;
     if (debuggerInDB(armState ? reg[15].I - 4 : reg[15].I - 2))
@@ -2026,8 +2019,6 @@ bool debuggerBreakOnWrite(uint32_t address, uint32_t value, int size)
 
 void debuggerBreakOnWrite(uint32_t address, uint32_t oldvalue, uint32_t value, int size, int t)
 {
-    (void)oldvalue; // unused params
-    (void)t; // unused params
     debuggerBreakOnWrite(address, value, size);
     //uint32_t lastValue;
     //dexp_eval("old_value", &lastValue);
@@ -2686,8 +2677,6 @@ void deleteBreak(uint32_t address, uint8_t flags, char** expression, int howToDe
 }
 void clearBreaks(uint32_t address, uint8_t flags, char** expression, int howToClear)
 {
-    (void)address; // unused params
-    (void)expression; // unused params
     if (howToClear == 2) {
         removeConditionalWithFlag(flags, true);
         removeConditionalWithFlag(flags << 4, true);
@@ -2703,7 +2692,6 @@ void clearBreaks(uint32_t address, uint8_t flags, char** expression, int howToCl
 
 void listBreaks(uint32_t address, uint8_t flags, char** expression, int howToList)
 {
-    (void)expression; // unused params
     flags |= (flags << 4);
     if (howToList) {
         printAllFlagConditionalsWithAddress(address, flags, true);
@@ -2908,7 +2896,8 @@ void executeBreakCommands(int n, char** cmd)
         operation(address, flag, cmd + 1, n - 1);
         return;
     }
-//brkcmd_special_register:
+
+brkcmd_special_register:
     switch (command[4]) {
     case 'l':
         debuggerBreakRegisterList((n > 0) && (tolower(cmd[0][0]) == 'v'));
@@ -3537,9 +3526,9 @@ void remoteInit()
 void remotePutPacket(const char* packet)
 {
     const char* hex = "0123456789abcdef";
+    char buffer[1024];
 
     size_t count = strlen(packet);
-    char* buffer = new char[count + 5];
 
     unsigned char csum = 0;
 
@@ -3559,15 +3548,10 @@ void remotePutPacket(const char* packet)
     char c = 0;
     while (c != '+') {
         remoteSendFnc(buffer, (int)count + 4);
-
-        if (remoteRecvFnc(&c, 1) < 0) {
-            delete[] buffer;
+        if (remoteRecvFnc(&c, 1) < 0)
             return;
-        }
         //    fprintf(stderr,"sent:%s recieved:%c\n",buffer,c);
     }
-
-    delete[] buffer;
 }
 
 void remoteOutput(const char* s, uint32_t addr)
@@ -3628,7 +3612,7 @@ void remoteSendStatus()
     s += 12;
     CPUUpdateCPSR();
     v = reg[16].I;
-    sprintf(s, "19:%02x%02x%02x%02x;", (v & 255),
+    sprintf(s, "10:%02x%02x%02x%02x;", (v & 255),
         (v >> 8) & 255,
         (v >> 16) & 255,
         (v >> 24) & 255);
@@ -3700,7 +3684,7 @@ void remoteMemoryRead(char* p)
     sscanf(p, "%x,%x:", &address, &count);
     //  monprintf("Memory read for %08x %d\n", address, count);
 
-    char* buffer = new char[(count*2)+1];
+    char buffer[1024];
 
     char* s = buffer;
     for (int i = 0; i < count; i++) {
@@ -3711,33 +3695,22 @@ void remoteMemoryRead(char* p)
     }
     *s = 0;
     remotePutPacket(buffer);
-
-    delete[] buffer;
 }
 
 void remoteQuery(char* p)
 {
     if (!strncmp(p, "fThreadInfo", 11)) {
-        remotePutPacket("m1");
+        remotePutPacket("m-1");
     } else if (!strncmp(p, "sThreadInfo", 11)) {
         remotePutPacket("l");
     } else if (!strncmp(p, "Supported", 9)) {
         remotePutPacket("PacketSize=1000");
-    } else if (!strncmp(p, "HostInfo", 8)) {
-        remotePutPacket("cputype:12;cpusubtype:5;ostype:unknown;vendor:nintendo;endian:little;ptrsize:4;");
-    } else if (!strncmp(p, "C", 1)) {
-        remotePutPacket("QC1");
-    } else if (!strncmp(p, "Attached", 8)) {
-        remotePutPacket("1");
-    } else if (!strncmp(p, "Symbol", 6)) {
-        remotePutPacket("OK");
     } else if (!strncmp(p, "Rcmd,", 5)) {
         p += 5;
         std::string cmd = HexToString(p);
         dbgExecute(cmd);
         remotePutPacket("OK");
     } else {
-        fprintf(stderr, "Unknown packet %s\n", --p);
         remotePutPacket("");
     }
 }
@@ -3797,7 +3770,7 @@ void remoteSetBreakPoint(char* p)
 
 void remoteClearBreakPoint(char* p)
 {
-    int result = 0;
+    int result;
     uint32_t address;
     int count;
     sscanf(p, ",%x,%x#", &address, &count);
@@ -3986,7 +3959,6 @@ void remoteReadRegister(char* p)
 
 void remoteReadRegisters(char* p)
 {
-    (void)p; // unused params
     char buffer[1024];
 
     char* s = buffer;
@@ -4245,7 +4217,6 @@ void remoteStubMain()
 
 void remoteStubSignal(int sig, int number)
 {
-    (void)number; // unused params
     remoteSignal = sig;
     remoteResumed = false;
     remoteSendStatus();
